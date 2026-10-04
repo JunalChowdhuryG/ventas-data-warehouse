@@ -1,0 +1,39 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: etl-service
+  flyway:
+    url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh}
+    user: ${DWH_OWNER_USER:dwh}
+    password: ${DWH_OWNER_PASSWORD:dwh}
+    locations: classpath:db/migration/dwh
+    default-schema: public
+  batch:
+    job:
+      enabled: false            
+    jdbc:
+      initialize-schema: always 
+
+dwh:
+  datasource:
+    jdbc-url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh}
+    username: ${DWH_ETL_USER:u_etl}
+    password: ${DWH_ETL_PASSWORD:u_etl}
+
+# Fuente: OLTP (usuario de solo lectura)
+oltp:
+  datasource:
+    jdbc-url: ${OLTP_URL:jdbc:postgresql://localhost:5432/oltp}
+    username: ${OLTP_RO_USER:oltp_ro}
+    password: ${OLTP_RO_PASSWORD:oltp_ro}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
