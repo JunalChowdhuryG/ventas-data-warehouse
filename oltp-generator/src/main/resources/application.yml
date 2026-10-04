@@ -1,0 +1,34 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: oltp-generator
+  datasource:
+    url: ${OLTP_URL:jdbc:postgresql://localhost:5432/oltp}
+    username: ${OLTP_OWNER_USER:oltp}
+    password: ${OLTP_OWNER_PASSWORD:oltp}
+  flyway:
+    locations: classpath:db/migration/oltp
+
+# Generador de datos 
+generador:
+  semilla: 42
+  anos-historico: 2
+  pedidos-por-dia: 150
+  clientes: 2000
+  tasa-errores: 0.01          
+  proporcion-online: 0.30     
+  carga-inicial: true         
+  flujo-diario-activo: true
+  cron: "0 0 1 * * *"        
+  directorio-csv: ./data/csv
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
