@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: olap-api
+  datasource:
+    url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh}
+    username: ${DWH_API_USER:u_api}
+    password: ${DWH_API_PASSWORD:u_api}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
