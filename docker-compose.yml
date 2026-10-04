@@ -1,0 +1,144 @@
+
+name: ventas-dw
+
+services:
+  postgres-oltp:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: oltp
+      POSTGRES_USER: ${OLTP_OWNER_USER:?define OLTP_OWNER_USER en .env}
+      POSTGRES_PASSWORD: ${OLTP_OWNER_PASSWORD:?define OLTP_OWNER_PASSWORD en .env}
+      OLTP_RO_PASSWORD: ${OLTP_RO_PASSWORD:?define OLTP_RO_PASSWORD en .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - oltp-data:/var/lib/postgresql/data
+      - ./infra/postgres-oltp/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d oltp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres-dwh:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: dwh
+      POSTGRES_USER: ${DWH_OWNER_USER:?define DWH_OWNER_USER en .env}
+      POSTGRES_PASSWORD: ${DWH_OWNER_PASSWORD:?define DWH_OWNER_PASSWORD en .env}
+      DWH_ETL_PASSWORD: ${DWH_ETL_PASSWORD:?define DWH_ETL_PASSWORD en .env}
+      DWH_API_PASSWORD: ${DWH_API_PASSWORD:?define DWH_API_PASSWORD en .env}
+    ports:
+      - "5433:5432"
+    volumes:
+      - dwh-data:/var/lib/postgresql/data
+      - ./infra/postgres-dwh/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d dwh"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  prometheus:
+    image: prom/prometheus:latest   
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest 
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?define GRAFANA_ADMIN_PASSWORD en .env}
+      DWH_API_PASSWORD: ${DWH_API_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - postgres-dwh
+
+  # aplicacion  
+  oltp-generator:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: oltp-generator/Dockerfile
+    environment:
+      OLTP_URL: jdbc:postgresql://postgres-oltp:5432/oltp
+      OLTP_OWNER_USER: ${OLTP_OWNER_USER}
+      OLTP_OWNER_PASSWORD: ${OLTP_OWNER_PASSWORD}
+      GENERADOR_DIRECTORIO_CSV: /data/csv
+    volumes:
+      - csv-data:/data/csv        
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres-oltp:
+        condition: service_healthy
+
+  etl-service:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: etl-service/Dockerfile
+    environment:
+      DWH_URL: jdbc:postgresql://postgres-dwh:5432/dwh
+      DWH_OWNER_USER: ${DWH_OWNER_USER}
+      DWH_OWNER_PASSWORD: ${DWH_OWNER_PASSWORD}
+      DWH_ETL_USER: ${DWH_ETL_USER}
+      DWH_ETL_PASSWORD: ${DWH_ETL_PASSWORD}
+      OLTP_URL: jdbc:postgresql://postgres-oltp:5432/oltp
+      OLTP_RO_USER: ${OLTP_RO_USER}
+      OLTP_RO_PASSWORD: ${OLTP_RO_PASSWORD}
+      ETL_CSV_DIRECTORIO: /data/csv
+    volumes:
+      - csv-data:/data/csv:ro
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres-dwh:
+        condition: service_healthy
+      oltp-generator:
+        condition: service_started
+
+  olap-api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: olap-api/Dockerfile
+    environment:
+      DWH_URL: jdbc:postgresql://postgres-dwh:5432/dwh
+      DWH_API_USER: ${DWH_API_USER}
+      DWH_API_PASSWORD: ${DWH_API_PASSWORD}
+      REDIS_HOST: redis
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres-dwh:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etl-service:
+        condition: service_started
+
+volumes:
+  oltp-data:
+  dwh-data:
+  grafana-data:
+  csv-data:
