@@ -109,7 +109,7 @@ public final class GeneradorVentas {
         Acum acum = new Acum();
         LocalDate desde = hasta.minusYears(cfg.anosHistorico()).plusDays(1);
         for (LocalDate d = desde; !d.isAfter(hasta); d = d.plusDays(1)) {
-            generarDiaInterno(cat, d, acum);
+            generarDiaInterno(cat, d, acum, true);
         }
         return acum.resumen();
     }
@@ -120,7 +120,7 @@ public final class GeneradorVentas {
         Random r = new Random(cfg.semilla() * 31 + fecha.toEpochDay() * 0x9E3779B97F4A7C15L);
         aplicarCambiosEnMaestros(r, acum);
         avanzarEstados(fecha, acum);
-        generarDiaInterno(leerCatalogo(), fecha, acum);
+        generarDiaInterno(leerCatalogo(), fecha, acum, false);
         return acum.resumen();
     }
 
@@ -279,8 +279,7 @@ public final class GeneradorVentas {
     }
 
     //  un dia de ventas
-
-    private void generarDiaInterno(Catalogo cat, LocalDate fecha, Acum acum) {
+    private void generarDiaInterno(Catalogo cat, LocalDate fecha, Acum acum, boolean historico) {
         Random r = new Random(cfg.semilla() * 31 + fecha.toEpochDay() * 0x9E3779B97F4A7C15L + 7);
         int total = ModeloVentas.pedidosDelDia(r, cfg.pedidosPorDia(), fecha);
         int nOnline = 0;
@@ -298,9 +297,11 @@ public final class GeneradorVentas {
         try (Connection c = dataSource.getConnection()) {
             c.setAutoCommit(false);
             try {
-                // Conserva las marcas updated_at que asigna el generador (ver migracion OLTP V3)
-                try (Statement st = c.createStatement()) {
-                    st.execute("SET LOCAL ventasdw.omitir_touch = 'on'");
+                if (historico) {
+                    // Conserva las marcas updated_at que asigna el generador (ver migracion OLTP V3)
+                    try (Statement st = c.createStatement()) {
+                        st.execute("SET LOCAL ventasdw.omitir_touch = 'on'");
+                    }
                 }
                 //   Canal tienda: va al OLTP
                 if (nTienda > 0) {
@@ -325,7 +326,7 @@ public final class GeneradorVentas {
                             psPedido.setInt(3, empleado);
                             psPedido.setObject(4, fechaPedido);
                             psPedido.setString(5, estadoInicial(r, fecha, reciente));
-                            psPedido.setObject(6, marcaDeTiempo(r, fecha));
+                            psPedido.setObject(6, marca(r, fecha, historico));
                             psPedido.addBatch();
 
                             int nLineas = ModeloVentas.lineasPorPedido(r);
@@ -379,7 +380,7 @@ public final class GeneradorVentas {
                 if (nOnline > 0) {
                     long primerId = reservarIdsOnline(c, nOnline);
                     for (int i = 0; i < nOnline; i++) {
-                        lineasOnline.addAll(pedidoOnline(r, cat, fecha, primerId + i, reciente, errores));
+                        lineasOnline.addAll(pedidoOnline(r, cat, fecha, primerId + i, reciente, errores, historico));
                     }
                 }
 
@@ -410,9 +411,9 @@ public final class GeneradorVentas {
             acum.errores.merge(e.tipo(), 1, Integer::sum);
         }
     }
- 
+
     private List<LineaOnline> pedidoOnline(Random r, Catalogo cat, LocalDate fecha, long pedidoId,
-                                           boolean reciente, List<ErrorQa> errores) {
+                                           boolean reciente, List<ErrorQa> errores, boolean historico) {
         Cli cli = cat.clientes().get(muestrear(r, cat.acumClientes()));
         double tipoCambio = 3.60 + 0.15 * Math.sin(fecha.toEpochDay() / 60.0);
         LocalDate fechaPedido = fecha;
@@ -422,10 +423,10 @@ public final class GeneradorVentas {
         }
         String estado = reciente
                 ? (r.nextDouble() < 0.6 ? "PENDIENTE" : "ENVIADO")
-                : r.nextDouble() < 0.95 ? ModeloVentas.estadoEntregado(r) : "CANCELADO"; 
+                : r.nextDouble() < 0.95 ? ModeloVentas.estadoEntregado(r) : "CANCELADO";
         String razon = r.nextDouble() < 0.20 ? cli.nombre().toUpperCase() : cli.nombre();
         String email = cli.email() == null ? null : (r.nextDouble() < 0.10 ? " " + cli.email().toUpperCase() + " " : cli.email());
-        OffsetDateTime ts = marcaDeTiempo(r, fecha);
+        OffsetDateTime ts = marca(r, fecha, historico);
 
         List<LineaOnline> lineas = new ArrayList<>();
         int nLineas = ModeloVentas.lineasPorPedido(r);
@@ -488,12 +489,17 @@ public final class GeneradorVentas {
         }
         return x < 0.98 ? "CANCELADO" : "DEVUELTO";
     }
- 
+
     private static BigDecimal precioEfectivo(Random r, BigDecimal lista) {
         double factor = 1 + (r.nextDouble() - 0.5) * 0.06;
         return lista.multiply(BigDecimal.valueOf(factor)).setScale(2, RoundingMode.HALF_UP);
     }
- 
+
+    private static OffsetDateTime marca(Random r, LocalDate fecha, boolean historico) {
+        OffsetDateTime simulada = marcaDeTiempo(r, fecha);   // consume siempre el mismo numero de valores aleatorios
+        return historico ? simulada : OffsetDateTime.now(ZONA);
+    }
+
     private static OffsetDateTime marcaDeTiempo(Random r, LocalDate fecha) {
         OffsetDateTime ts = fecha.atTime(8 + r.nextInt(14), r.nextInt(60), r.nextInt(60)).atZone(ZONA).toOffsetDateTime();
         OffsetDateTime ahora = OffsetDateTime.now(ZONA);
@@ -501,7 +507,7 @@ public final class GeneradorVentas {
     }
 
     //   flujo diario
- 
+
     private void avanzarEstados(LocalDate fecha, Acum acum) {
         try (Connection c = dataSource.getConnection()) {
             c.setAutoCommit(false);
@@ -529,7 +535,7 @@ public final class GeneradorVentas {
             throw new IllegalStateException("No se pudieron avanzar los estados", e);
         }
     }
- 
+
     private void aplicarCambiosEnMaestros(Random r, Acum acum) {
         Catalogo cat = leerCatalogo();
         try (Connection c = dataSource.getConnection()) {
@@ -605,7 +611,7 @@ public final class GeneradorVentas {
         }
         return ids;
     }
- 
+
     private long reservarIdsOnline(Connection c, int cantidad) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
                 "UPDATE generador_estado SET valor = valor + ? WHERE clave = 'pedido_online' RETURNING valor - ?")) {
