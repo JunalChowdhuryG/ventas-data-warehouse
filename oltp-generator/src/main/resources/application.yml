@@ -22,7 +22,7 @@ generador:
   carga-inicial: true         
   flujo-diario-activo: true
   cron: "0 0 1 * * *"        
-  directorio-csv: ./data/csv
+  directorio-csv: ${GENERADOR_DIRECTORIO_CSV:./data/csv}
 
 management:
   endpoints:
