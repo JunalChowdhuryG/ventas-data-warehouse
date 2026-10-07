@@ -4,7 +4,7 @@ export
 DWH_OWNER_USER  ?= dwh
 OLTP_OWNER_USER ?= oltp
 
-.PHONY: init infra-up apps-up down reset psql-dwh psql-oltp install-common run-generator run-etl run-api test verify-dwh generar-dia
+.PHONY: init infra-up apps-up down reset psql-dwh psql-oltp install-common run-generator run-etl run-api test verify-dwh generar-dia etl etl-total etl-historial etl-qa
 
 init:            ## Crea .env a partir de .env.example (si no existe)
 	@test -f .env || cp .env.example .env
@@ -51,3 +51,15 @@ verify-dwh:      ## Prueba el DWH con datos de ejemplo (corre dentro de una tran
 
 generar-dia:     ## Dispara el flujo diario del generador (opcional: make generar-dia FECHA=2026-10-03)
 	curl -s -X POST "http://localhost:8082/api/v1/generador/flujo-diario$(if $(FECHA),?fecha=$(FECHA),)"; echo
+
+etl:   
+	@curl -s -X POST "http://localhost:8081/api/v1/etl/ejecutar"; echo
+
+etl-total:       
+	@curl -s -X POST "http://localhost:8081/api/v1/etl/ejecutar?modo=total"; echo
+
+etl-historial:    
+	@curl -s "http://localhost:8081/api/v1/etl/ejecuciones?limite=10"; echo
+
+etl-qa:           
+	@curl -s "http://localhost:8081/api/v1/etl/calidad/comparacion-qa"; echo
