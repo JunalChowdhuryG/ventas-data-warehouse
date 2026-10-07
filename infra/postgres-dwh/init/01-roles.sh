@@ -11,7 +11,4 @@ CREATE ROLE dwh_api_ro NOLOGIN;
 -- Usuarios de runtime
 CREATE ROLE u_etl LOGIN PASSWORD :'etl_pw' IN ROLE dwh_etl_rw;
 CREATE ROLE u_api LOGIN PASSWORD :'api_pw' IN ROLE dwh_api_ro;
-
--- Spring Batch crea sus tablas BATCH_* en public con el usuario de ETL
-GRANT CREATE ON SCHEMA public TO u_etl;
 EOSQL
