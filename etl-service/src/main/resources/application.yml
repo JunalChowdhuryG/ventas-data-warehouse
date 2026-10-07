@@ -5,20 +5,23 @@ spring:
   application:
     name: etl-service
   flyway:
-    url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh}
+ 
+    url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh?reWriteBatchedInserts=true}
     user: ${DWH_OWNER_USER:dwh}
     password: ${DWH_OWNER_PASSWORD:dwh}
     locations: classpath:db/migration/dwh
     default-schema: public
-  batch:
-    job:
-      enabled: false            
-    jdbc:
-      initialize-schema: always 
 
+etl:
+  csv-directorio: ${ETL_CSV_DIRECTORIO:../oltp-generator/data/csv}   
+  tipo-cambio-usd: 3.70       
+  solape-minutos: 5            
+  cron: "0 30 1 * * *"        
+  activo: true
+ 
 dwh:
   datasource:
-    jdbc-url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh}
+    jdbc-url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh?reWriteBatchedInserts=true}
     username: ${DWH_ETL_USER:u_etl}
     password: ${DWH_ETL_PASSWORD:u_etl}
 

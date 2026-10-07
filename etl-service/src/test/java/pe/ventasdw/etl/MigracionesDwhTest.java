@@ -31,7 +31,7 @@ class MigracionesDwhTest {
                 .migrate();
 
         assertThat(resultado.success).isTrue();
-        assertThat(resultado.migrationsExecuted).isEqualTo(7);
+        assertThat(resultado.migrationsExecuted).isEqualTo(8);
 
         try (Connection c = DriverManager.getConnection(
                         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
@@ -60,7 +60,7 @@ class MigracionesDwhTest {
 
         MigrateResult primero = flywayComoDwh(url).migrate();
         assertThat(primero.success).isTrue();
-        assertThat(primero.migrationsExecuted).isEqualTo(7);
+        assertThat(primero.migrationsExecuted).isEqualTo(8);
 
         // Segundo arranque 
         MigrateResult reinicio = flywayComoDwh(url).migrate();
