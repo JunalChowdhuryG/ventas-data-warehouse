@@ -98,7 +98,7 @@ services:
       context: .
       dockerfile: etl-service/Dockerfile
     environment:
-      DWH_URL: jdbc:postgresql://postgres-dwh:5432/dwh
+      DWH_URL: jdbc:postgresql://postgres-dwh:5432/dwh?reWriteBatchedInserts=true
       DWH_OWNER_USER: ${DWH_OWNER_USER}
       DWH_OWNER_PASSWORD: ${DWH_OWNER_PASSWORD}
       DWH_ETL_USER: ${DWH_ETL_USER}
