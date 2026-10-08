@@ -13,6 +13,9 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
+olap:
+  cache-activa: true
+  cache-ttl-segundos: 600     
 management:
   endpoints:
     web:
