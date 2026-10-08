@@ -1,19 +1,19 @@
-### API OLAP de VentasDW: ejemplos para VS Code (extension REST Client) o IntelliJ.
+### API OLAP de VentasDW: ejemplos para VS Code (extensión REST Client) o IntelliJ.
 ### Puerto por defecto: 8080. Cada respuesta incluye el encabezado X-Cache (HIT, MISS o BYPASS).
-### Añade ?sql=true a cualquier operacion para ver el SQL generado (y saltar la cache).
+### Añade ?sql=true a cualquier operación para ver el SQL generado (y saltar la caché).
 
 @base = http://localhost:8080/api/v1/olap
 
-### Metadatos: dimensiones, jerarquias, medidas y agregados disponibles
+### Metadatos: dimensiones, jerarquías, medidas y agregados disponibles
 GET {{base}}/metadatos
 
-### Valores de un atributo (para armar filtros), con busqueda opcional
+### Valores de un atributo (para armar filtros), con búsqueda opcional
 GET {{base}}/metadatos/valores?atributo=producto.categoria
 
 ###
 GET {{base}}/metadatos/valores?atributo=geografia.departamento&q=li
 
-### Consulta base: ventas y unidades por año y categoria (se responde desde un agregado materializado)
+### Consulta base: ventas y unidades por año y categoría (se responde desde un agregado materializado)
 POST {{base}}/consulta
 Content-Type: application/json
 
@@ -72,7 +72,7 @@ Content-Type: application/json
   "miembro": { "fecha.anio": "2026" }
 }
 
-### Drill-up: sube un nivel (quita el nivel mas bajo de la dimension)
+### Drill-up: sube un nivel (quita el nivel más bajo de la dimensión)
 POST {{base}}/drill-up
 Content-Type: application/json
 
@@ -81,7 +81,7 @@ Content-Type: application/json
   "dimension": "fecha"
 }
 
-### Drill-across: agrega un criterio de analisis (desglosar por canal)
+### Drill-across: agrega un criterio de análisis (desglosar por canal)
 POST {{base}}/drill-across
 Content-Type: application/json
 
@@ -90,7 +90,7 @@ Content-Type: application/json
   "atributo": "canal.canal"
 }
 
-### Roll-across: quita un criterio de analisis y vuelve a agregar
+### Roll-across: quita un criterio de análisis y vuelve a agregar
 POST {{base}}/roll-across
 Content-Type: application/json
 
@@ -99,7 +99,7 @@ Content-Type: application/json
   "atributo": "canal.canal"
 }
 
-### Pivot: categoria en filas y trimestre en columnas
+### Pivot: categoría en filas y trimestre en columnas
 POST {{base}}/pivot
 Content-Type: application/json
 
@@ -113,7 +113,7 @@ Content-Type: application/json
   "columnas": ["fecha.trimestre"]
 }
 
-### Page: el cubo dividido por canal (pagina "Online")
+### Page: el cubo dividido por canal (página "Online")
 POST {{base}}/page
 Content-Type: application/json
 
@@ -123,7 +123,7 @@ Content-Type: application/json
   "valor": "Online"
 }
 
-### Solicitud invalida: responde 400 con {"error": "..."}
+### Solicitud inválida: responde 400 con {"error": "..."}
 POST {{base}}/consulta
 Content-Type: application/json
 

@@ -10,7 +10,14 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
-
+ * Dos orígenes de datos:
+ *  - DWH (primario): destino del ETL.
+ *    Se conecta con un usuario del grupo dwh_etl_rw. Flyway migra con otro usuario (dueño),
+ *    configurado en spring.flyway.*.
+ *  - OLTP (solo lectura): fuente de la extracción.
+ *
+ * Se definen explícitamente porque, con dos DataSource, la autoconfiguración de JdbcTemplate
+ * deja de crear el del DWH.
  */
 @Configuration(proxyBeanMethods = false)
 public class DataSourcesConfig {

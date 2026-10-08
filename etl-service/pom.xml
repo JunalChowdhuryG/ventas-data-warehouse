@@ -10,7 +10,7 @@
   </parent>
   <artifactId>etl-service</artifactId>
   <name>etl-service</name>
-  <description>Load Manager: extraccion, staging, transformacion y carga al DWH. Dueño de las migraciones del DWH.</description>
+  <description>Load Manager: extracción, staging, transformación y carga al DWH (JDBC y SQL por conjuntos). Dueño de las migraciones del DWH.</description>
 
   <dependencies>
     <dependency>
@@ -47,7 +47,8 @@
       <artifactId>micrometer-registry-prometheus</artifactId>
       <scope>runtime</scope>
     </dependency>
- 
+
+    <!-- Pruebas. Testcontainers 2.x usa los artefactos con prefijo testcontainers- -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

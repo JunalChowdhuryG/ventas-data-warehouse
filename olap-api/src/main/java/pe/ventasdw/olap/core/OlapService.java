@@ -15,7 +15,12 @@ import javax.sql.DataSource;
 import pe.ventasdw.olap.core.CuboVentas.Atributo;
 import pe.ventasdw.olap.core.CuboVentas.Dimension;
 import pe.ventasdw.olap.core.CuboVentas.Tipo;
- 
+
+/**
+ * Motor OLAP sobre el esquema estrella. Cada operación (consulta, drill-down, drill-up, drill-across,
+ * roll-across, pivot y page) recibe un contexto, calcula el nuevo y lo ejecuta contra el DWH.
+ * Solo lee; no guarda estado entre llamadas.
+ */
 public final class OlapService {
 
     private static final int MAX_COLUMNAS_PIVOT = 60;
@@ -28,17 +33,21 @@ public final class OlapService {
         this.dwh = dwh;
     }
 
-    //  operaciones
+    // ------------------------------------------------------------------------------ operaciones
 
     public Resultado consultar(Contexto solicitado) {
         return ejecutar(solicitado.normalizado(), null);
     }
 
+    /**
+     * Baja un nivel en la jerarquía de la dimensión. Si la dimensión no está en los ejes, agrega su nivel superior.
+     * "miembro" fija valores de atributos (p. ej. fecha.anio = 2026) para ver el detalle de esos miembros.
+     */
     public Resultado drillDown(Contexto solicitado, String dimension, Map<String, String> miembro) {
         Contexto c = solicitado.normalizado();
         Dimension d = CuboVentas.dimension(dimension);
         if (d.jerarquia().size() < 2) {
-            throw new OlapException("La dimension " + dimension + " no tiene jerarquia para bajar de nivel");
+            throw new OlapException("La dimensión " + dimension + " no tiene jerarquía para bajar de nivel");
         }
         List<String> presentes = nivelesPresentes(c, d);
         String nuevo;
@@ -47,7 +56,7 @@ public final class OlapService {
         } else {
             int ultimo = d.jerarquia().indexOf(presentes.get(presentes.size() - 1));
             if (ultimo == d.jerarquia().size() - 1) {
-                throw new OlapException("La dimension " + dimension + " ya esta en su nivel mas bajo (" + d.jerarquia().get(ultimo) + ")");
+                throw new OlapException("La dimensión " + dimension + " ya está en su nivel más bajo (" + d.jerarquia().get(ultimo) + ")");
             }
             nuevo = d.jerarquia().get(ultimo + 1);
         }
@@ -61,37 +70,41 @@ public final class OlapService {
         return ejecutar(resultado.normalizado(), null);
     }
 
+    /** Sube un nivel: quita el nivel más bajo de la dimensión presente en los ejes. */
     public Resultado drillUp(Contexto solicitado, String dimension) {
         Contexto c = solicitado.normalizado();
         Dimension d = CuboVentas.dimension(dimension);
         List<String> presentes = nivelesPresentes(c, d);
         if (presentes.size() < 2) {
-            throw new OlapException("La dimension " + dimension + " ya esta en su nivel superior: no hay nivel al que subir");
+            throw new OlapException("La dimensión " + dimension + " ya está en su nivel superior: no hay nivel al que subir");
         }
         String quitar = presentes.get(presentes.size() - 1);
         return ejecutar(sinAtributo(c, quitar).normalizado(), null);
     }
 
+    /** Agrega un criterio de análisis (análisis a mayor detalle). */
     public Resultado drillAcross(Contexto solicitado, String atributo) {
         Contexto c = solicitado.normalizado();
         CuboVentas.atributo(atributo);
         if (c.atributos().contains(atributo)) {
-            throw new OlapException("El atributo " + atributo + " ya esta en el analisis");
+            throw new OlapException("El atributo " + atributo + " ya está en el análisis");
         }
         List<String> filas = new ArrayList<>(c.filas());
         filas.add(atributo);
         return ejecutar(c.conFilas(filas).normalizado(), null);
     }
 
+    /** Quita un criterio de análisis y vuelve a agregar los indicadores. */
     public Resultado rollAcross(Contexto solicitado, String atributo) {
         Contexto c = solicitado.normalizado();
         CuboVentas.atributo(atributo);
         if (!c.atributos().contains(atributo)) {
-            throw new OlapException("El atributo " + atributo + " no esta en el analisis actual");
+            throw new OlapException("El atributo " + atributo + " no está en el análisis actual");
         }
         return ejecutar(sinAtributo(c, atributo).normalizado(), null);
     }
 
+    /** Reordena los ejes: mueve atributos entre filas y columnas o cambia su orden. Los atributos no pueden cambiar. */
     public Resultado pivot(Contexto solicitado, List<String> filas, List<String> columnas) {
         Contexto c = solicitado.normalizado();
         List<String> nuevasFilas = filas == null ? List.of() : filas;
@@ -105,10 +118,14 @@ public final class OlapService {
         return ejecutar(c.conEjes(nuevasFilas, nuevasColumnas).normalizado(), null);
     }
 
-
+    /**
+     * Presenta el cubo dividido por los valores de un atributo, como las páginas de un libro. Devuelve la lista de páginas
+     * y los datos de la página pedida (la primera si no se indica).
+     */
     public Resultado page(Contexto solicitado, String atributo, String valor) {
         Contexto c = solicitado.normalizado();
         Atributo a = CuboVentas.atributo(atributo);
+        // Valores disponibles según los filtros actuales (sin el filtro del propio atributo)
         List<Contexto.Filtro> sinFiltroPropio = new ArrayList<>();
         for (Contexto.Filtro f : c.filtros()) {
             if (!f.atributo().equals(atributo)) {
@@ -126,12 +143,13 @@ public final class OlapService {
         }
         String actual = valor != null ? valor : String.valueOf(valores.get(0));
         if (valor != null && valores.stream().noneMatch(v -> String.valueOf(v).equals(valor))) {
-            throw new OlapException("La pagina '" + valor + "' no existe para " + atributo);
+            throw new OlapException("La página '" + valor + "' no existe para " + atributo);
         }
         Contexto conPagina = c.conFiltroIgual(atributo, actual).normalizado();
         return ejecutar(conPagina, new Resultado.Paginas(atributo, valores, a.tipo() == Tipo.TEXTO ? actual : ConstructorConsulta.convertir(actual, a.tipo(), atributo)));
     }
 
+    /** Valores distintos de un atributo directamente desde su dimensión (para armar filtros). */
     public List<Object> valoresDe(String atributo, String texto, int limite) {
         Atributo a = CuboVentas.atributo(atributo);
         Dimension d = CuboVentas.dimension(a.dimension());
@@ -157,7 +175,7 @@ public final class OlapService {
         return valores;
     }
 
-    //  ejecucion
+    // ------------------------------------------------------------------------------ ejecución
 
     private Resultado ejecutar(Contexto c, Resultado.Paginas paginas) {
         long inicio = System.nanoTime();
@@ -200,7 +218,7 @@ public final class OlapService {
                 }
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("Fallo la consulta OLAP: " + e.getMessage(), e);
+            throw new IllegalStateException("Falló la consulta OLAP: " + e.getMessage(), e);
         }
 
         List<Resultado.Columna> columnas = new ArrayList<>();
@@ -226,7 +244,7 @@ public final class OlapService {
         };
     }
 
-    //  pivot
+    // ------------------------------------------------------------------------------ pivot
 
     private Resultado.Pivot construirPivot(Contexto c, List<Map<String, Object>> datos) {
         TreeSet<List<Object>> columnasOrdenadas = new TreeSet<>(COMPARADOR_TUPLAS);
@@ -242,7 +260,7 @@ public final class OlapService {
             porFila.computeIfAbsent(claveFila, k -> new LinkedHashMap<>()).put(claveColumna, medidas);
         }
         if (columnasOrdenadas.size() > MAX_COLUMNAS_PIVOT) {
-            throw new OlapException("El pivot tendria " + columnasOrdenadas.size() + " columnas (maximo " + MAX_COLUMNAS_PIVOT
+            throw new OlapException("El pivot tendría " + columnasOrdenadas.size() + " columnas (máximo " + MAX_COLUMNAS_PIVOT
                     + "). Filtra o usa un atributo de columna con menos valores.");
         }
         List<List<Object>> columnas = new ArrayList<>(columnasOrdenadas);
@@ -287,7 +305,9 @@ public final class OlapService {
         return 0;
     };
 
+    // ------------------------------------------------------------------------------ jerarquías y operaciones disponibles
 
+    /** Niveles de la dimensión presentes en los ejes, ordenados de arriba hacia abajo en la jerarquía. */
     private static List<String> nivelesPresentes(Contexto c, Dimension d) {
         List<String> presentes = new ArrayList<>();
         for (String nivel : d.jerarquia()) {
@@ -298,6 +318,7 @@ public final class OlapService {
         return presentes;
     }
 
+    /** Inserta el nuevo nivel justo después del último nivel presente de la dimensión, en el mismo eje; si no hay, al final de las filas. */
     private static Contexto insertarJuntoAlNivel(Contexto c, Dimension d, List<String> presentes, String nuevo) {
         List<String> filas = new ArrayList<>(c.filas());
         List<String> columnas = new ArrayList<>(c.columnas());

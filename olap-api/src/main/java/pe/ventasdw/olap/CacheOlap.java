@@ -12,7 +12,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
- 
+/**
+ * Caché de respuestas en Redis. La clave incluye el identificador de la última ejecución exitosa del ETL, de modo que
+ * cuando entra una carga nueva las respuestas anteriores dejan de usarse solas (no hace falta que el ETL invalide nada).
+ * Si Redis falla, la API sigue funcionando sin caché.
+ */
 @Component
 public class CacheOlap {
 

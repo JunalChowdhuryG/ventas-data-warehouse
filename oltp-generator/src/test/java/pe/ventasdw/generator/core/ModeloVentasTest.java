@@ -16,7 +16,7 @@ class ModeloVentasTest {
         LocalDate lunesFebrero = LocalDate.of(2026, 2, 9);
         assertThat(ModeloVentas.factorEstacional(sabadoDiciembre))
                 .isGreaterThan(ModeloVentas.factorEstacional(lunesFebrero));
-        assertThat(ModeloVentas.factorEstacional(LocalDate.of(2026, 3, 14)))   // sabado
+        assertThat(ModeloVentas.factorEstacional(LocalDate.of(2026, 3, 14)))   // sábado
                 .isGreaterThan(ModeloVentas.factorEstacional(LocalDate.of(2026, 3, 16)));  // lunes
     }
 

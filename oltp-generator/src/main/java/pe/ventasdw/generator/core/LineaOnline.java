@@ -3,7 +3,8 @@ package pe.ventasdw.generator.core;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
- 
+
+/** Una fila del CSV del canal online. Los campos pueden ser nulos para simular datos sucios. */
 public record LineaOnline(
         long pedidoOnlineId,
         int linea,

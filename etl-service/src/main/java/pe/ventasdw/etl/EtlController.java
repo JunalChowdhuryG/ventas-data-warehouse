@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import pe.ventasdw.etl.core.EtlService;
 import pe.ventasdw.etl.core.QaComparador;
 
+/** Control manual del ETL y consulta de su estado (útil para demos y para depurar). */
 @RestController
 @RequestMapping("/api/v1/etl")
 public class EtlController {
@@ -31,26 +32,29 @@ public class EtlController {
         this.dwhDataSource = dwhDataSource;
         this.oltpDataSource = oltpDataSource;
     }
-    
+
+    /** POST /api/v1/etl/ejecutar?modo=auto (por defecto) o modo=total (reconstruye el DWH desde cero). */
     @PostMapping("/ejecutar")
     public ResponseEntity<Object> ejecutar(@RequestParam(defaultValue = "auto") String modo) {
         EtlService.Modo m = "total".equalsIgnoreCase(modo) ? EtlService.Modo.TOTAL : EtlService.Modo.AUTO;
         try {
             return ResponseEntity.ok(orquestador.ejecutar(m));
         } catch (IllegalStateException e) {
-            if (e.getMessage() != null && e.getMessage().startsWith("Ya hay una ejecucion")) {
+            if (e.getMessage() != null && e.getMessage().startsWith("Ya hay una ejecución")) {
                 return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
             }
             throw e;
         }
     }
- 
+
+    /** Últimas ejecuciones (más recientes primero). */
     @GetMapping("/ejecuciones")
     public List<Map<String, Object>> ejecuciones(@RequestParam(defaultValue = "20") int limite) {
         return dwh.queryForList("SELECT id, tipo_carga, estado, inicio, fin, filas_extraidas, filas_cargadas, "
                 + "filas_rechazadas, mensaje FROM etl.ejecucion ORDER BY id DESC LIMIT ?", Math.max(1, Math.min(limite, 200)));
     }
- 
+
+    /** Excepciones de calidad agrupadas por regla; sin parámetro, de todas las ejecuciones. */
     @GetMapping("/excepciones/resumen")
     public List<Map<String, Object>> resumenExcepciones(@RequestParam(required = false) Long ejecucion) {
         String base = "SELECT regla, severidad, count(*) AS filas FROM etl.excepcion";
@@ -59,7 +63,8 @@ public class EtlController {
         }
         return dwh.queryForList(base + " WHERE ejecucion_id = ? GROUP BY regla, severidad ORDER BY filas DESC", ejecucion);
     }
- 
+
+    /** Compara los errores inyectados por el generador con los que el ETL detectó. Solo tiene sentido en desarrollo. */
     @GetMapping("/calidad/comparacion-qa")
     public List<QaComparador.Fila> comparacionQa() {
         return QaComparador.comparar(oltpDataSource, dwhDataSource);

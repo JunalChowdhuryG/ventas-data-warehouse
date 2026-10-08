@@ -6,7 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
- 
+
+/** Coherencia interna de los metadatos del cubo (es la lista blanca de todo el SQL). */
 class CuboVentasTest {
 
     @Test

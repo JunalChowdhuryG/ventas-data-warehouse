@@ -4,11 +4,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
- 
+/**
+ * Metadatos del cubo de ventas: dimensiones con sus jerarquías, atributos (niveles), medidas y agregados
+ * materializados. Es la lista blanca que valida toda solicitud: ningún identificador SQL llega del usuario.
+ *
+ * <p>Un atributo se identifica como "dimension.nivel" (por ejemplo "fecha.anio" o "producto.categoria").
+ */
 public final class CuboVentas {
 
     public enum Tipo { ENTERO, TEXTO, FECHA }
- 
+
+    /** Un nivel de una dimensión, mapeado a una expresión SQL sobre el alias de la tabla de dimensión. */
     public record Atributo(String id, String dimension, String etiqueta, String expresion, Tipo tipo) {
     }
 
@@ -16,10 +22,17 @@ public final class CuboVentas {
     }
 
     public record Medida(String id, String etiqueta, String descripcion, String sql, boolean aditiva) {
-    } 
+    }
+
+    /** Vista materializada que puede responder consultas sobre un subconjunto de atributos y medidas aditivas. */
     public record Agregado(String tabla, Map<String, String> columnasPorAtributo, Map<String, String> medidasSql) {
     }
- 
+
+    /**
+     * Pedidos distintos. Un pedido se identifica por (canal, pedido_id); se combinan en un solo entero para que
+     * COUNT(DISTINCT) sea unas 5 veces más rápido que con un registro compuesto. Es válido mientras las claves
+     * de canal estén entre -1 y 14 (hoy: -1, 1 y 2).
+     */
     private static final String PEDIDOS = "COUNT(DISTINCT (f.pedido_id::bigint * 16 + f.canal_key + 1))";
 
     private static final Map<String, Dimension> DIMENSIONES = new LinkedHashMap<>();
@@ -83,7 +96,9 @@ public final class CuboVentas {
     private static void medida(String id, String etiqueta, String descripcion, String sql, boolean aditiva) {
         MEDIDAS.put(id, new Medida(id, etiqueta, descripcion, sql, aditiva));
     }
- 
+
+    // ------------------------------------------------------------------------------ consulta de metadatos
+
     public static Map<String, Dimension> dimensiones() {
         return java.util.Collections.unmodifiableMap(DIMENSIONES);
     }

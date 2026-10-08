@@ -1,5 +1,14 @@
- 
--- VentasDW | OLTP V1: esquema transaccional de ventas  
+-- =====================================================================
+-- VentasDW | OLTP V1: esquema transaccional de ventas (Figura 4 del documento de diseño)
+--
+-- Decisiones:
+--  * Todas las tablas llevan updated_at, mantenido por trigger: es la base de la
+--    carga incremental del ETL (watermark).
+--  * Un cambio en detalle_pedido actualiza también pedido.updated_at, para que el ETL
+--    vuelva a extraer el pedido completo.
+--  * El OLTP es permisivo a propósito (cantidad y precio sin CHECK, estado libre): un OLTP
+--    real tolera datos sucios y es el ETL quien los trata y registra en etl.excepcion.
+-- =====================================================================
 
 CREATE FUNCTION set_updated_at() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -14,7 +23,7 @@ CREATE TABLE ciudad (
     ciudad        varchar(80)  NOT NULL,
     provincia     varchar(80)  NOT NULL,
     departamento  varchar(80)  NOT NULL,
-    pais          varchar(80)  NOT NULL DEFAULT 'Peru',
+    pais          varchar(80)  NOT NULL DEFAULT 'Perú',
     updated_at    timestamptz  NOT NULL DEFAULT now()
 );
 
@@ -74,7 +83,8 @@ CREATE TRIGGER trg_cliente_updated   BEFORE UPDATE ON cliente   FOR EACH ROW EXE
 CREATE TRIGGER trg_empleado_updated  BEFORE UPDATE ON empleado  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_producto_updated  BEFORE UPDATE ON producto  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_pedido_updated    BEFORE UPDATE ON pedido    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
- 
+
+-- Un cambio en las líneas "toca" el pedido para que el ETL lo vuelva a extraer
 CREATE FUNCTION touch_pedido() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -89,7 +99,8 @@ $$;
 CREATE TRIGGER trg_detalle_touch_pedido
     AFTER INSERT OR UPDATE OR DELETE ON detalle_pedido
     FOR EACH ROW EXECUTE FUNCTION touch_pedido();
- 
+
+-- Índices para la extracción incremental y las claves foráneas
 CREATE INDEX ix_pedido_updated     ON pedido   (updated_at);
 CREATE INDEX ix_pedido_cliente     ON pedido   (cliente_id);
 CREATE INDEX ix_pedido_fecha       ON pedido   (fecha_pedido);

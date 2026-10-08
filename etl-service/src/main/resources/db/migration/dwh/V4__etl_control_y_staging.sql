@@ -1,5 +1,10 @@
- 
+-- =====================================================================
 -- VentasDW | V4: control del ETL (schema etl) y staging (schema stg)
+-- Nota: las tablas BATCH_* de Spring Batch (JobRepository) no se crean aquí: las crea Spring Batch
+-- en el esquema public de esta misma base (spring.batch.jdbc.initialize-schema=always).
+-- =====================================================================
+
+-- ------------------------------------------------------------ etl.control
 CREATE TABLE etl.control (
     fuente                  varchar(30)  NOT NULL,              -- OLTP, CSV_ONLINE
     tabla                   varchar(60)  NOT NULL,
@@ -8,9 +13,9 @@ CREATE TABLE etl.control (
     ultima_ejecucion        timestamptz,
     PRIMARY KEY (fuente, tabla)
 );
-COMMENT ON TABLE etl.control IS 'Marca de agua por tabla fuente. Solo se avanza si la ejecucion termina bien.';
+COMMENT ON TABLE etl.control IS 'Marca de agua por tabla fuente. Solo se avanza si la ejecución termina bien.';
 
---  etl.ejecucion
+-- ---------------------------------------------------------- etl.ejecucion
 CREATE TABLE etl.ejecucion (
     id                bigint       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     job               varchar(60)  NOT NULL,
@@ -25,9 +30,9 @@ CREATE TABLE etl.ejecucion (
     CONSTRAINT ck_ejecucion_fin CHECK (fin IS NULL OR fin >= inicio)
 );
 CREATE INDEX ix_ejecucion_job_inicio ON etl.ejecucion (job, inicio DESC);
-COMMENT ON TABLE etl.ejecucion IS 'Historial de ejecuciones del ETL. Base de las metricas de Prometheus.';
+COMMENT ON TABLE etl.ejecucion IS 'Historial de ejecuciones del ETL. Base de las métricas de Prometheus.';
 
---   etl.excepcion
+-- --------------------------------------------------------- etl.excepcion
 CREATE TABLE etl.excepcion (
     id             bigint       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ejecucion_id   bigint       NOT NULL REFERENCES etl.ejecucion (id) ON DELETE CASCADE,
@@ -40,22 +45,24 @@ CREATE TABLE etl.excepcion (
 );
 CREATE INDEX ix_excepcion_ejecucion ON etl.excepcion (ejecucion_id);
 CREATE INDEX ix_excepcion_regla     ON etl.excepcion (regla, registrada_en DESC);
-COMMENT ON TABLE etl.excepcion IS 'Registros rechazados, corregidos o con advertencia, con la regla de calidad que los afecto.';
+COMMENT ON TABLE etl.excepcion IS 'Registros rechazados, corregidos o con advertencia, con la regla de calidad que los afectó.';
 
---   stg.venta_linea
--- Tabla de staging unificada 
+-- ------------------------------------------------------- stg.venta_linea
+-- Tabla de staging unificada: ambas fuentes (OLTP y CSV online) se aplanan a esta forma.
+-- UNLOGGED: sin WAL, más rápida; se puede reconstruir reejecutando la extracción.
+-- Columnas nullable a propósito: aquí llegan datos sucios antes de validar.
 CREATE UNLOGGED TABLE stg.venta_linea (
     stg_id              bigint       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ejecucion_id        bigint       NOT NULL,
-    fuente              varchar(30)  NOT NULL,                   
+    fuente              varchar(30)  NOT NULL,                  -- OLTP | CSV_ONLINE
     canal_codigo        varchar(20),
     pedido_id           bigint,
     linea               integer,
     fecha_pedido        date,
-    estado_origen       varchar(40),                             
-    estado              varchar(20),                             
+    estado_origen       varchar(40),                            -- tal como llega (E, ENT, Entregado...)
+    estado              varchar(20),                            -- normalizado
     cliente_id          integer,
-    cliente             varchar(200),                            
+    cliente             varchar(200),                           -- nombre o razon_social, ya unificado
     email               varchar(254),
     ciudad_id           integer,
     pais                varchar(80),
@@ -71,10 +78,10 @@ CREATE UNLOGGED TABLE stg.venta_linea (
     cantidad            integer,
     precio_unitario     numeric(14,4),
     descuento           numeric(7,4),
-    moneda              char(3),                                -- PEN | USD  
+    moneda              char(3),                                -- PEN | USD (se convierte a PEN al transformar)
     updated_at          timestamptz,
     estado_validacion   varchar(12)  NOT NULL DEFAULT 'PENDIENTE'
                         CHECK (estado_validacion IN ('PENDIENTE', 'VALIDO', 'CORREGIDO', 'RECHAZADO'))
 );
 CREATE INDEX ix_stg_venta_linea_ejec ON stg.venta_linea (ejecucion_id, estado_validacion);
-COMMENT ON TABLE stg.venta_linea IS 'Staging unificado de lineas de venta (OLTP y CSV online). Se trunca o se filtra por ejecucion_id.';
+COMMENT ON TABLE stg.venta_linea IS 'Staging unificado de líneas de venta (OLTP y CSV online). Se trunca o se filtra por ejecucion_id.';

@@ -11,7 +11,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * Escribe los archivos CSV del canal online 
+ * Escribe los archivos CSV del canal online. Cada archivo se escribe como .tmp y se renombra al final,
+ * de modo que el ETL nunca lee un archivo a medias (solo procesa *.csv).
  */
 public final class CsvOnlineWriter {
 
@@ -25,7 +26,8 @@ public final class CsvOnlineWriter {
 
     private CsvOnlineWriter() {
     }
- 
+
+    /** Escribe las líneas y devuelve la ruta final. Si ya existe un archivo de esa fecha, usa un sufijo _2, _3... */
     public static Path escribir(Path directorio, LocalDate fecha, List<LineaOnline> lineas) throws IOException {
         Files.createDirectories(directorio);
         Path destino = nombreDisponible(directorio, fecha);
@@ -59,7 +61,8 @@ public final class CsvOnlineWriter {
                 celda(l.productoId()), celda(l.descripcion()), celda(l.categoria()), celda(l.cantidad()),
                 celda(l.precioUnitario()), celda(l.descuento()), celda(l.moneda()), celda(l.updatedAt()));
     }
- 
+
+    /** Nulo se escribe como celda vacía. Se entrecomilla si contiene coma, comillas o saltos de línea. */
     static String celda(Object valor) {
         if (valor == null) {
             return "";

@@ -1,16 +1,21 @@
-
+-- =====================================================================
+-- VentasDW | Script de verificación del DDL (datos de ejemplo mínimos)
+-- Uso:  psql -d dwh -v ON_ERROR_STOP=1 -f verificar_dwh.sql
+-- Todo ocurre dentro de una transacción que termina en ROLLBACK:
+-- no deja datos en la base.
+-- =====================================================================
 \set ON_ERROR_STOP on
 BEGIN;
 
 -- 1) Dimensiones de ejemplo
 INSERT INTO dwh.dim_geografia (ciudad_id, pais, departamento, provincia, ciudad) VALUES
-  (1, 'Peru', 'Lima',   'Lima',   'Lima'),
-  (2, 'Peru', 'Cusco',  'Cusco',  'Cusco');
+  (1, 'Perú', 'Lima',   'Lima',   'Lima'),
+  (2, 'Perú', 'Cusco',  'Cusco',  'Cusco');
 INSERT INTO dwh.dim_empleado (empleado_id, empleado, cargo) VALUES (10, 'Ana Torres', 'Vendedora');
 INSERT INTO dwh.dim_cliente (cliente_id, cliente, email, hash_atributos, vigente_desde)
   VALUES (100, 'Carlos Ruiz', 'carlos@correo.pe', md5('Carlos Ruiz|carlos@correo.pe'), DATE '1900-01-01');
 
--- 2) SCD2 en producto: version 1 (categoria Snacks) y luego cambio a Golosinas el 2026-03-01
+-- 2) SCD2 en producto: versión 1 (categoría Snacks) y luego cambio a Golosinas el 2026-03-01
 INSERT INTO dwh.dim_producto (producto_id, producto, categoria, hash_atributos, vigente_desde)
   VALUES (500, 'Chocolate 100 g', 'Snacks', md5('Chocolate 100 g|Snacks'), DATE '1900-01-01');
 UPDATE dwh.dim_producto SET vigente_hasta = DATE '2026-03-01', es_actual = false
@@ -18,7 +23,7 @@ UPDATE dwh.dim_producto SET vigente_hasta = DATE '2026-03-01', es_actual = false
 INSERT INTO dwh.dim_producto (producto_id, producto, categoria, hash_atributos, vigente_desde)
   VALUES (500, 'Chocolate 100 g', 'Golosinas', md5('Chocolate 100 g|Golosinas'), DATE '2026-03-01');
 
--- 3) Hechos: una venta en febrero (version antigua) y dos en marzo (version nueva)
+-- 3) Hechos: una venta en febrero (versión antigua) y dos en marzo (versión nueva)
 INSERT INTO dwh.fact_ventas (fecha_key, canal_key, producto_key, cliente_key, geografia_key, empleado_key,
                              pedido_id, linea, cantidad, precio_unitario, descuento)
 SELECT 20260215, 1, p.producto_key, c.cliente_key, g.geografia_key, e.empleado_key, 1, 1, 3, 10.00, 0.10
@@ -36,8 +41,8 @@ WHERE p.producto_id = 500 AND p.es_actual AND c.cliente_id = 100 AND g.ciudad_id
 \echo '--- importe_total generado (esperado: 27.00, 40.00, 60.00)'
 SELECT pedido_id, importe_total FROM dwh.fact_ventas ORDER BY fecha_key, pedido_id;
 
--- 5) ROLLUP por anio y trimestre/mes, con la categoria vigente en cada momento
-\echo '--- ventas por mes y categoria (esperado: feb Snacks 27.00; mar Golosinas 100.00)'
+-- 5) ROLLUP por año y trimestre/mes, con la categoría vigente en cada momento
+\echo '--- ventas por mes y categoría (esperado: feb Snacks 27.00; mar Golosinas 100.00)'
 SELECT d.mes, p.categoria, SUM(f.importe_total) AS ventas
 FROM dwh.fact_ventas f
 JOIN dwh.dim_fecha d ON d.fecha_key = f.fecha_key
@@ -45,8 +50,8 @@ JOIN dwh.dim_producto p ON p.producto_key = f.producto_key
 GROUP BY ROLLUP (d.mes, p.categoria)
 ORDER BY d.mes, p.categoria;
 
--- 6) Particion correcta: las filas de 2026 deben estar en fact_ventas_2026 y no en la default
-\echo '--- filas por particion (esperado: fact_ventas_2026 = 3, default = 0)'
+-- 6) Partición correcta: las filas de 2026 deben estar en fact_ventas_2026 y no en la default
+\echo '--- filas por partición (esperado: fact_ventas_2026 = 3, default = 0)'
 SELECT tableoid::regclass AS particion, count(*) FROM dwh.fact_ventas GROUP BY 1 ORDER BY 1;
 
 -- 7) Agregados materializados
@@ -72,7 +77,7 @@ BEGIN
     VALUES (20260310, 1, -1, -1, -1, -1, 99, 1, 0, 5);
   EXCEPTION WHEN check_violation THEN v_fallos := v_fallos + 1; END;
 
-  -- 8c) Hecho duplicado (misma clave de linea)
+  -- 8c) Hecho duplicado (misma clave de línea)
   BEGIN
     INSERT INTO dwh.fact_ventas (fecha_key, canal_key, producto_key, cliente_key, geografia_key, empleado_key,
                                  pedido_id, linea, cantidad, precio_unitario)
@@ -86,12 +91,12 @@ BEGIN
     VALUES (19990101, 1, -1, -1, -1, -1, 98, 1, 1, 5);
   EXCEPTION WHEN foreign_key_violation THEN v_fallos := v_fallos + 1; END;
 
-  RAISE NOTICE 'Restricciones que bloquearon datos invalidos: % de 4 (esperado: 4)', v_fallos;
-  IF v_fallos <> 4 THEN RAISE EXCEPTION 'Alguna restriccion no se aplico'; END IF;
+  RAISE NOTICE 'Restricciones que bloquearon datos inválidos: % de 4 (esperado: 4)', v_fallos;
+  IF v_fallos <> 4 THEN RAISE EXCEPTION 'Alguna restricción no se aplicó'; END IF;
 END
 $$;
 
--- 9) Idempotencia de la carga: el upsert por clave de linea no duplica
+-- 9) Idempotencia de la carga: el upsert por clave de línea no duplica
 INSERT INTO dwh.fact_ventas (fecha_key, canal_key, producto_key, cliente_key, geografia_key, empleado_key,
                              pedido_id, linea, cantidad, precio_unitario, descuento)
 SELECT fecha_key, canal_key, producto_key, cliente_key, geografia_key, empleado_key, pedido_id, linea, 5, 10.00, 0

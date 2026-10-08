@@ -15,7 +15,8 @@ spring:
 
 olap:
   cache-activa: true
-  cache-ttl-segundos: 600     
+  cache-ttl-segundos: 600     # la caché también se descarta sola cuando entra una carga nueva del ETL
+
 management:
   endpoints:
     web:

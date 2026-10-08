@@ -4,7 +4,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- 
+ * Estado de una consulta OLAP: qué atributos van en filas y columnas, qué medidas se calculan y qué filtros
+ * (slice y dice) se aplican. Las operaciones OLAP reciben un contexto y devuelven otro; el servidor no guarda estado.
+ *
+ * @param filas          atributos de agrupación (ejes de filas), en orden
+ * @param columnas       atributos que se despliegan como columnas (tabla dinámica); vacío = tabla plana
+ * @param medidas        indicadores a calcular; por defecto, ventas
+ * @param filtros        restricciones por atributo
+ * @param orden          ordenamiento; por defecto, por los atributos de agrupación
+ * @param limite         máximo de filas (por defecto 1000, tope 10000)
+ * @param subtotales     agrega subtotales y total general (ROLLUP) sobre las filas
+ * @param usarAgregados  permite responder desde las vistas materializadas cuando es equivalente (por defecto sí)
  */
 public record Contexto(
         List<String> filas,
@@ -18,13 +28,15 @@ public record Contexto(
 
     public static final int LIMITE_POR_DEFECTO = 1_000;
     public static final int LIMITE_MAXIMO = 10_000;
- 
+
+    /** Restricción sobre un atributo: lista de valores, o rango desde/hasta (inclusive). */
     public record Filtro(String atributo, List<String> valores, String desde, String hasta) {
     }
 
     public record Orden(String campo, String direccion) {
     }
- 
+
+    /** Rellena los valores omitidos y valida contra el cubo. Es la forma canónica que usan el SQL y la caché. */
     public Contexto normalizado() {
         List<String> f = filas == null ? List.of() : List.copyOf(filas);
         List<String> c = columnas == null ? List.of() : List.copyOf(columnas);
@@ -77,7 +89,7 @@ public record Contexto(
         }
     }
 
-    /** Filas y columnas juntas */
+    /** Filas y columnas juntas, en ese orden. */
     public List<String> atributos() {
         List<String> todos = new ArrayList<>(filas == null ? List.of() : filas);
         if (columnas != null) {
@@ -93,7 +105,8 @@ public record Contexto(
     public Contexto conEjes(List<String> nuevasFilas, List<String> nuevasColumnas) {
         return new Contexto(nuevasFilas, nuevasColumnas, medidas, filtros, orden, limite, subtotales, usarAgregados);
     }
- 
+
+    /** Agrega o reemplaza el filtro de un atributo por un único valor. */
     public Contexto conFiltroIgual(String atributo, String valor) {
         List<Filtro> nuevos = new ArrayList<>();
         for (Filtro f : filtros == null ? List.<Filtro>of() : filtros) {

@@ -24,7 +24,17 @@ import java.util.Random;
 import javax.sql.DataSource;
 
 /**
- * Generador de datos de ventas para el OLTP y el canal online  
+ * Generador de datos de ventas para el OLTP y el canal online (CSV).
+ *
+ * <ul>
+ *   <li>Catálogos: ciudades, categorías, productos, clientes y empleados (una sola vez).</li>
+ *   <li>Histórico: un periodo de varios años con estacionalidad, descuentos y popularidad desigual.</li>
+ *   <li>Flujo diario: pedidos del día, avance de estados y cambios en maestros (alimentan el SCD2 del ETL).</li>
+ *   <li>Errores inyectados a propósito, registrados en qa_error_inyectado.</li>
+ * </ul>
+ *
+ * Solo depende de JDBC estándar. No es seguro en concurrencia entre instancias; dentro de una instancia
+ * sus operaciones públicas están sincronizadas.
  */
 public final class GeneradorVentas {
 
@@ -63,7 +73,7 @@ public final class GeneradorVentas {
                             double[] acumClientes, int[] empleados) {
     }
 
-    /** Un error inyectado pendiente de registrar en qa_error_inyectado  */
+    /** Un error inyectado pendiente de registrar en qa_error_inyectado. */
     private record ErrorQa(String fuente, TipoError tipo, long pedidoId, Integer linea, LocalDate fecha, String detalle) {
     }
 
@@ -97,12 +107,13 @@ public final class GeneradorVentas {
         this.cfg = cfg;
     }
 
-    //  API publica
+    // ------------------------------------------------------------------------------------ API pública
 
     public synchronized boolean oltpVacio() {
         return escalar("SELECT count(*) FROM pedido") == 0;
     }
- 
+
+    /** Crea los catálogos si no existen y genera los días desde (hasta - años + 1) hasta "hasta", inclusive. */
     public synchronized Resumen cargarHistorico(LocalDate hasta) {
         asegurarCatalogos();
         Catalogo cat = leerCatalogo();
@@ -113,7 +124,8 @@ public final class GeneradorVentas {
         }
         return acum.resumen();
     }
- 
+
+    /** Un día de operación: cambios en maestros, avance de estados y los pedidos de la fecha. */
     public synchronized Resumen generarDia(LocalDate fecha) {
         asegurarCatalogos();
         Acum acum = new Acum();
@@ -124,7 +136,7 @@ public final class GeneradorVentas {
         return acum.resumen();
     }
 
-    // catalogos
+    // ------------------------------------------------------------------------------------ catálogos
 
     private void asegurarCatalogos() {
         if (escalar("SELECT count(*) FROM categoria") > 0) {
@@ -151,7 +163,7 @@ public final class GeneradorVentas {
                     pesosCiudad[i] = Catalogos.CIUDADES.get(i).peso();
                 }
 
-                // Categorias y productos
+                // Categorías y productos
                 try (PreparedStatement ps = c.prepareStatement("INSERT INTO categoria (nombre) VALUES (?)")) {
                     for (String nombre : Catalogos.categorias()) {
                         ps.setString(1, nombre);
@@ -186,7 +198,7 @@ public final class GeneradorVentas {
                     ps.executeBatch();
                 }
 
-                // Clientes  
+                // Clientes (ciudad según peso poblacional)
                 try (PreparedStatement ps = c.prepareStatement(
                         "INSERT INTO cliente (nombre, email, ciudad_id) VALUES (?, ?, ?)")) {
                     for (int i = 0; i < cfg.clientes(); i++) {
@@ -204,7 +216,7 @@ public final class GeneradorVentas {
                 throw e;
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("No se pudieron crear los catalogos", e);
+            throw new IllegalStateException("No se pudieron crear los catálogos", e);
         }
     }
 
@@ -232,11 +244,12 @@ public final class GeneradorVentas {
                 }
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("No se pudo leer el catalogo", e);
+            throw new IllegalStateException("No se pudo leer el catálogo", e);
         }
         if (productos.isEmpty() || clientes.isEmpty() || empleados.isEmpty()) {
-            throw new IllegalStateException("Catalogos vacios: no se puede generar ventas");
-        } 
+            throw new IllegalStateException("Catálogos vacíos: no se puede generar ventas");
+        }
+        // Popularidad tipo Zipf con un orden aleatorio fijo por semilla (no depende del id)
         Random r = new Random(cfg.semilla() + 1);
         double[] acumP = acumuladoZipf(productos.size(), 0.9, r);
         double[] acumC = acumuladoZipf(clientes.size(), 0.6, r);
@@ -278,7 +291,14 @@ public final class GeneradorVentas {
         return lo;
     }
 
-    //  un dia de ventas
+    // ------------------------------------------------------------------------------------ un día de ventas
+
+    /**
+     * @param historico true en la carga histórica: las marcas updated_at reflejan la fecha simulada.
+     *                  false en el flujo diario: updated_at es el momento real de inserción, como en un sistema vivo.
+     *                  Así el ETL incremental (que extrae por updated_at) ve también los pedidos de fechas pasadas
+     *                  que llegan tarde (backfill).
+     */
     private void generarDiaInterno(Catalogo cat, LocalDate fecha, Acum acum, boolean historico) {
         Random r = new Random(cfg.semilla() * 31 + fecha.toEpochDay() * 0x9E3779B97F4A7C15L + 7);
         int total = ModeloVentas.pedidosDelDia(r, cfg.pedidosPorDia(), fecha);
@@ -298,12 +318,12 @@ public final class GeneradorVentas {
             c.setAutoCommit(false);
             try {
                 if (historico) {
-                    // Conserva las marcas updated_at que asigna el generador (ver migracion OLTP V3)
+                    // Conserva las marcas updated_at que asigna el generador (ver migración OLTP V3)
                     try (Statement st = c.createStatement()) {
                         st.execute("SET LOCAL ventasdw.omitir_touch = 'on'");
                     }
                 }
-                //   Canal tienda: va al OLTP
+                // --- Canal tienda: va al OLTP
                 if (nTienda > 0) {
                     List<Long> ids = reservarIdsPedido(c, nTienda);
                     try (PreparedStatement psPedido = c.prepareStatement(
@@ -376,7 +396,7 @@ public final class GeneradorVentas {
                     }
                 }
 
-                //  
+                // --- Canal online: va al CSV (los ids se reservan en la tabla de estado)
                 if (nOnline > 0) {
                     long primerId = reservarIdsOnline(c, nOnline);
                     for (int i = 0; i < nOnline; i++) {
@@ -391,7 +411,7 @@ public final class GeneradorVentas {
                 throw e;
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("Fallo la generacion del dia " + fecha, e);
+            throw new IllegalStateException("Falló la generación del día " + fecha, e);
         }
 
         if (!lineasOnline.isEmpty()) {
@@ -412,6 +432,7 @@ public final class GeneradorVentas {
         }
     }
 
+    /** Genera las líneas CSV de un pedido online, con su moneda, formato sucio y errores inyectados. */
     private List<LineaOnline> pedidoOnline(Random r, Catalogo cat, LocalDate fecha, long pedidoId,
                                            boolean reciente, List<ErrorQa> errores, boolean historico) {
         Cli cli = cat.clientes().get(muestrear(r, cat.acumClientes()));
@@ -424,6 +445,7 @@ public final class GeneradorVentas {
         String estado = reciente
                 ? (r.nextDouble() < 0.6 ? "PENDIENTE" : "ENVIADO")
                 : r.nextDouble() < 0.95 ? ModeloVentas.estadoEntregado(r) : "CANCELADO";
+        // Formato sucio pero válido (el ETL lo normaliza; no cuenta como error inyectado)
         String razon = r.nextDouble() < 0.20 ? cli.nombre().toUpperCase() : cli.nombre();
         String email = cli.email() == null ? null : (r.nextDouble() < 0.10 ? " " + cli.email().toUpperCase() + " " : cli.email());
         OffsetDateTime ts = marca(r, fecha, historico);
@@ -490,24 +512,28 @@ public final class GeneradorVentas {
         return x < 0.98 ? "CANCELADO" : "DEVUELTO";
     }
 
+    /** Precio de lista con una variación de hasta 3% (promociones, redondeos), en soles con 2 decimales. */
     private static BigDecimal precioEfectivo(Random r, BigDecimal lista) {
         double factor = 1 + (r.nextDouble() - 0.5) * 0.06;
         return lista.multiply(BigDecimal.valueOf(factor)).setScale(2, RoundingMode.HALF_UP);
     }
 
+    /** Histórico: hora simulada del día. Flujo diario: el instante real. */
     private static OffsetDateTime marca(Random r, LocalDate fecha, boolean historico) {
-        OffsetDateTime simulada = marcaDeTiempo(r, fecha);   // consume siempre el mismo numero de valores aleatorios
+        OffsetDateTime simulada = marcaDeTiempo(r, fecha);   // consume siempre el mismo número de valores aleatorios
         return historico ? simulada : OffsetDateTime.now(ZONA);
     }
 
+    /** Hora aleatoria del día (8:00 a 22:00). Si cae en el futuro (día de hoy), se usa la hora actual. */
     private static OffsetDateTime marcaDeTiempo(Random r, LocalDate fecha) {
         OffsetDateTime ts = fecha.atTime(8 + r.nextInt(14), r.nextInt(60), r.nextInt(60)).atZone(ZONA).toOffsetDateTime();
         OffsetDateTime ahora = OffsetDateTime.now(ZONA);
         return ts.isAfter(ahora) ? ahora : ts;
     }
 
-    //   flujo diario
+    // ------------------------------------------------------------------------------------ flujo diario
 
+    /** Avanza el ciclo de vida de pedidos abiertos. Cada UPDATE activa el trigger de updated_at (insumo del ETL incremental). */
     private void avanzarEstados(LocalDate fecha, Acum acum) {
         try (Connection c = dataSource.getConnection()) {
             c.setAutoCommit(false);
@@ -536,6 +562,10 @@ public final class GeneradorVentas {
         }
     }
 
+    /**
+     * Cambios en maestros que el ETL debe versionar (SCD tipo 2): un producto cambia de categoría o de nombre,
+     * clientes cambian de correo, de nombre o de ciudad.
+     */
     private void aplicarCambiosEnMaestros(Random r, Acum acum) {
         Catalogo cat = leerCatalogo();
         try (Connection c = dataSource.getConnection()) {
@@ -552,9 +582,9 @@ public final class GeneradorVentas {
                 }
                 if (r.nextDouble() < 0.03) {
                     Prod p = cat.productos().get(r.nextInt(cat.productos().size()));
-                    if (!p.nombre().endsWith(" (nueva presentacion)")) {
+                    if (!p.nombre().endsWith(" (nueva presentación)")) {
                         try (PreparedStatement ps = c.prepareStatement("UPDATE producto SET nombre = ? WHERE producto_id = ?")) {
-                            ps.setString(1, p.nombre() + " (nueva presentacion)");
+                            ps.setString(1, p.nombre() + " (nueva presentación)");
                             ps.setInt(2, p.id());
                             cambios += ps.executeUpdate();
                         }
@@ -596,7 +626,7 @@ public final class GeneradorVentas {
         }
     }
 
-    //   utilidades JDBC
+    // ------------------------------------------------------------------------------------ utilidades JDBC
 
     private List<Long> reservarIdsPedido(Connection c, int cantidad) throws SQLException {
         List<Long> ids = new ArrayList<>(cantidad);
@@ -612,6 +642,7 @@ public final class GeneradorVentas {
         return ids;
     }
 
+    /** Reserva "cantidad" ids consecutivos de pedido online y devuelve el primero. */
     private long reservarIdsOnline(Connection c, int cantidad) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
                 "UPDATE generador_estado SET valor = valor + ? WHERE clave = 'pedido_online' RETURNING valor - ?")) {

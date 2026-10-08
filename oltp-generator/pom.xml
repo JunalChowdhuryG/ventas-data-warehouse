@@ -10,13 +10,14 @@
   </parent>
   <artifactId>oltp-generator</artifactId>
   <name>oltp-generator</name>
-  <description>Genera datos de ventas simulados en el OLTP (historico y flujo diario)</description>
+  <description>Genera datos de ventas simulados en el OLTP (histórico y flujo diario)</description>
 
   <dependencies>
     <dependency>
       <groupId>pe.ventasdw</groupId>
       <artifactId>dwh-common</artifactId>
-    </dependency> 
+    </dependency>
+    <!-- Boot 4: starters modulares (web pasó a webmvc, Flyway tiene starter propio) -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webmvc</artifactId>

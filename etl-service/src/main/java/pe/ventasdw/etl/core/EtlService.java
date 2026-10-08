@@ -24,7 +24,15 @@ import java.util.stream.Stream;
 import javax.sql.DataSource;
 
 /**
- * ETL de ventas: OLTP (PostgreSQL) y CSV del canal online hacia el DWH (esquema estrella)
+ * ETL de ventas: OLTP (PostgreSQL) y CSV del canal online hacia el DWH (esquema estrella).
+ *
+ * <p>Fases: (1) extracción a staging, (2) dimensiones (SCD1 y SCD2), (3) reglas de calidad sobre las líneas,
+ * (4) carga de hechos con claves sustitutas, (5) control (watermarks, archivos procesados).
+ * Las fases 2 a 5 corren en una sola transacción: o se aplica todo o nada, y el watermark solo avanza
+ * si todo salió bien. La carga es idempotente: repetirla no duplica ni altera datos.
+ *
+ * <p>La mayor parte del trabajo es SQL por conjuntos dentro del DWH (staging más reglas), con JDBC
+ * estándar. Solo una ejecución a la vez (bloqueo asesor de PostgreSQL entre instancias).
  */
 public final class EtlService {
 
@@ -47,7 +55,7 @@ public final class EtlService {
         this.cfg = cfg;
     }
 
-    /** Estado acumulado de una ejecucion. */
+    /** Estado acumulado de una ejecución. */
     private static final class Ctx {
         long id;
         String tipo;
@@ -61,14 +69,14 @@ public final class EtlService {
         OffsetDateTime corte;
     }
 
-    //   API
+    // ----------------------------------------------------------------------------------- API
 
     public synchronized EtlResultado ejecutar(Modo modo) {
         long inicio = System.nanoTime();
         try (Connection lock = dwh.getConnection()) {
             lock.setAutoCommit(true);
             if (!adquirirLock(lock)) {
-                throw new IllegalStateException("Ya hay una ejecucion del ETL en curso");
+                throw new IllegalStateException("Ya hay una ejecución del ETL en curso");
             }
             try {
                 return correr(modo, inicio);
@@ -117,11 +125,11 @@ public final class EtlService {
             return cerrarOk(x, inicioNanos);
         } catch (SQLException | IOException | RuntimeException e) {
             cerrarFallida(x, e);
-            throw new IllegalStateException("ETL fallido (ejecucion " + x.id + "): " + e.getMessage(), e);
+            throw new IllegalStateException("ETL fallido (ejecución " + x.id + "): " + e.getMessage(), e);
         }
     }
 
-    //   extraccion
+    // ----------------------------------------------------------------------------------- extracción
 
     private void extraer(Ctx x, Connection o, Connection d, Map<String, OffsetDateTime> desde)
             throws SQLException, IOException {
@@ -152,9 +160,9 @@ public final class EtlService {
                 });
         x.detalle.put("extraidas.empleado", n);
 
-        // Producto: cambia si cambia el producto o su categoria
+        // Producto: cambia si cambia el producto o su categoría
         n = copiar(o, d, desde.get("producto"), hasta,
-                "SELECT p.producto_id, p.nombre, coalesce(k.nombre, 'Sin categoria'), p.precio_lista, "
+                "SELECT p.producto_id, p.nombre, coalesce(k.nombre, 'Sin categoría'), p.precio_lista, "
                         + "greatest(p.updated_at, coalesce(k.updated_at, p.updated_at)) AS actualizado "
                         + "FROM producto p LEFT JOIN categoria k ON k.categoria_id = p.categoria_id "
                         + "WHERE greatest(p.updated_at, coalesce(k.updated_at, p.updated_at)) > ? "
@@ -179,7 +187,8 @@ public final class EtlService {
                     ps.setObject(4, rs.getObject(4, OffsetDateTime.class));
                 });
         x.detalle.put("extraidas.cliente", n);
- 
+
+        // Líneas de pedidos del OLTP (canal tienda). Un pedido cambia si cambia su cabecera o sus líneas (trigger).
         final long ejec = x.id;
         n = copiar(o, d, desde.get("pedido"), hasta,
                 "SELECT p.pedido_id, dp.linea, p.fecha_pedido, p.estado, p.updated_at, p.cliente_id, c.ciudad_id, "
@@ -207,7 +216,8 @@ public final class EtlService {
                 });
         x.detalle.put("extraidas.lineas_oltp", n);
         x.extraidas += n;
- 
+
+        // CSV del canal online: solo los archivos que aún no se procesaron
         long lineasCsv = extraerCsv(x, d);
         x.detalle.put("extraidas.lineas_csv", lineasCsv);
         x.extraidas += lineasCsv;
@@ -310,7 +320,7 @@ public final class EtlService {
                         } catch (SQLException e) {
                             throw new IllegalStateException(e);
                         } catch (RuntimeException e) {
-                            throw new IllegalStateException("Fila invalida en " + archivo.getFileName() + ": " + e.getMessage(), e);
+                            throw new IllegalStateException("Fila inválida en " + archivo.getFileName() + ": " + e.getMessage(), e);
                         }
                     });
                 } catch (IllegalStateException e) {
@@ -374,7 +384,7 @@ public final class EtlService {
         }
     }
 
-    //   transformacion y carga
+    // ----------------------------------------------------------------------------------- transformación y carga
 
     private void transformarYCargar(Ctx x, Connection d) throws SQLException {
         medirSql(x, "dimensiones", () -> cargarDimensiones(x, d));
@@ -396,7 +406,8 @@ public final class EtlService {
                         + "ON CONFLICT (empleado_id) DO UPDATE SET empleado = EXCLUDED.empleado, cargo = EXCLUDED.cargo "
                         + "WHERE (dwh.dim_empleado.empleado, dwh.dim_empleado.cargo) IS DISTINCT FROM (EXCLUDED.empleado, EXCLUDED.cargo)"));
 
-        String fProd = FECHA_LIMA.formatted("s"); 
+        String fProd = FECHA_LIMA.formatted("s");
+        // SCD2 producto: (a) mismo día: se corrige la versión actual; (b) se cierra la anterior; (c) precio_lista es SCD1; (d) versión nueva
         ejecutar(d, "UPDATE dwh.dim_producto d SET producto = s.producto, categoria = s.categoria, hash_atributos = s.hash_atributos "
                 + "FROM stg.producto s WHERE d.producto_id = s.producto_id AND d.es_actual AND d.hash_atributos <> s.hash_atributos "
                 + "AND d.vigente_desde >= " + fProd);
@@ -431,14 +442,14 @@ public final class EtlService {
 
     private void aplicarReglas(Ctx x, Connection d) throws SQLException {
         long e = x.id;
-        // Normalizacio 
+        // Normalización (codificación): estados con variantes de escritura
         ejecutar(d, "UPDATE stg.venta_linea SET estado = CASE upper(trim(estado_origen)) "
                 + "WHEN 'ENTREGADO' THEN 'ENTREGADO' WHEN 'ENT' THEN 'ENTREGADO' WHEN 'E' THEN 'ENTREGADO' "
                 + "WHEN 'CANCELADO' THEN 'CANCELADO' WHEN 'DEVUELTO' THEN 'DEVUELTO' "
                 + "WHEN 'PENDIENTE' THEN 'PENDIENTE' WHEN 'ENVIADO' THEN 'ENVIADO' ELSE 'DESCONOCIDO' END "
                 + "WHERE ejecucion_id = ?", e);
 
-        // 1. Duplicados 
+        // 1. Duplicados: se conserva el registro con updated_at más reciente
         ejecutar(d, "WITH dup AS (SELECT stg_id, row_number() OVER (PARTITION BY canal_codigo, pedido_id, linea "
                 + "ORDER BY updated_at DESC NULLS LAST, stg_id DESC) AS rn FROM stg.venta_linea "
                 + "WHERE ejecucion_id = ? AND pedido_id IS NOT NULL AND linea IS NOT NULL), "
@@ -446,13 +457,13 @@ public final class EtlService {
                 + "WHERE s.stg_id = dup.stg_id AND dup.rn > 1 RETURNING s.stg_id, s.fuente, s.pedido_id, s.linea) "
                 + excepcionDesde("r", "LINEA_DUPLICADA", "ADVERTENCIA"), e, e);
 
-        // 2. Rechazos 
+        // 2. Rechazos (ERROR)
         rechazar(d, e, "CLAVE_NULA", "pedido_id IS NULL OR linea IS NULL OR fecha_pedido IS NULL");
         rechazar(d, e, "FECHA_FUTURA", "fecha_pedido > " + HOY_LIMA);
         rechazar(d, e, "FECHA_FUERA_DE_RANGO", "fecha_pedido < (SELECT min(fecha) FROM dwh.dim_fecha)");
         rechazar(d, e, "CANTIDAD_NO_POSITIVA", "cantidad IS NULL OR cantidad <= 0");
 
-        // 3. Precio 
+        // 3. Precio: referencia de lista vigente, imputación de faltantes y conversión a soles
         ejecutar(d, "UPDATE stg.venta_linea s SET precio_lista = p.precio_lista FROM dwh.dim_producto p "
                 + "WHERE s.ejecucion_id = ? AND s.estado_validacion = 'PENDIENTE' AND p.producto_id = s.producto_id AND p.es_actual", e);
         corregir(d, e, "PRECIO_NULO", "precio_unitario = precio_lista, moneda = 'PEN'",
@@ -464,7 +475,7 @@ public final class EtlService {
                 "precio_lista > 0 AND precio_unitario / precio_lista > 5");
         advertir(d, e, "ESTADO_DESCONOCIDO", "estado = 'DESCONOCIDO'");
 
-        // 4. Referencias que no existen 
+        // 4. Referencias que no existen: se asigna el miembro Desconocido (-1)
         corregir(d, e, "PRODUCTO_NULO", "corregido = true", "producto_id IS NULL");
         corregir(d, e, "PRODUCTO_INEXISTENTE", "corregido = true", "producto_id IS NOT NULL AND NOT EXISTS "
                 + "(SELECT 1 FROM dwh.dim_producto p WHERE p.producto_id = s.producto_id)");
@@ -474,7 +485,7 @@ public final class EtlService {
         corregir(d, e, "EMPLEADO_INEXISTENTE", "corregido = true", "empleado_id IS NOT NULL AND NOT EXISTS "
                 + "(SELECT 1 FROM dwh.dim_empleado m WHERE m.empleado_id = s.empleado_id)");
 
-        // 5. Regla de negocio  
+        // 5. Regla de negocio (no es un error): los pedidos cancelados o devueltos no cuentan como venta
         x.excluidas = ejecutar(d, "UPDATE stg.venta_linea SET estado_validacion = 'EXCLUIDO' "
                 + "WHERE ejecucion_id = ? AND estado_validacion = 'PENDIENTE' AND estado IN ('CANCELADO', 'DEVUELTO')", e);
 
@@ -500,7 +511,8 @@ public final class EtlService {
                 + "WHERE s.ejecucion_id = ? AND s.estado_validacion = 'PENDIENTE' AND (" + condicion + ")) "
                 + excepcionDesde("r", regla, "ADVERTENCIA"), e, e);
     }
- 
+
+    /** INSERT en etl.excepcion a partir de un CTE r; no repite una excepción ya registrada para la misma clave y regla. */
     private static String excepcionDesde(String cte, String regla, String severidad) {
         return "INSERT INTO etl.excepcion (ejecucion_id, tabla, clave_natural, regla, severidad, detalle) "
                 + "SELECT ?, 'venta_linea', " + cte + ".fuente || ':' || " + cte + ".pedido_id || ':' || coalesce(" + cte + ".linea::text, ''), "
@@ -510,13 +522,15 @@ public final class EtlService {
     }
 
     private void cargarHechos(Ctx x, Connection d) throws SQLException {
-        long e = x.id; 
+        long e = x.id;
+        // Pedidos que pasaron a cancelados o devueltos: salen del DWH
         x.detalle.put("hechos.eliminados", ejecutar(d,
                 "DELETE FROM dwh.fact_ventas f USING stg.venta_linea s, dwh.dim_canal c "
                         + "WHERE s.ejecucion_id = ? AND s.estado_validacion = 'EXCLUIDO' AND c.codigo = s.canal_codigo "
                         + "AND f.canal_key = c.canal_key AND f.pedido_id = s.pedido_id AND f.linea = s.linea "
                         + "AND f.fecha_key = to_char(s.fecha_pedido, 'YYYYMMDD')::int", e));
- 
+
+        // Hechos: cada dimensión se resuelve a su clave sustituta (producto y cliente según la versión vigente en la fecha de la venta)
         long n = ejecutar(d,
                 "INSERT INTO dwh.fact_ventas (fecha_key, canal_key, producto_key, cliente_key, geografia_key, empleado_key, "
                         + "pedido_id, linea, cantidad, precio_unitario, descuento, ejecucion_id) "
@@ -564,7 +578,7 @@ public final class EtlService {
         }
     }
 
-    //   control de ejecucion
+    // ----------------------------------------------------------------------------------- control de ejecución
 
     private boolean cargaInicialPendiente() {
         try (Connection c = dwh.getConnection(); Statement st = c.createStatement();
@@ -575,7 +589,8 @@ public final class EtlService {
             throw new IllegalStateException("No se pudo leer etl.control", e);
         }
     }
- 
+
+    /** Límite inferior de extracción por tabla: época en cargas iniciales; watermark menos el solape en las incrementales. */
     private Map<String, OffsetDateTime> ventanas(String tipo) {
         Map<String, OffsetDateTime> m = new HashMap<>();
         for (String t : TABLAS_OLTP) {
@@ -631,7 +646,7 @@ public final class EtlService {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("No se pudo registrar la ejecucion", e);
+            throw new IllegalStateException("No se pudo registrar la ejecución", e);
         }
     }
 
@@ -667,7 +682,7 @@ public final class EtlService {
                 ps.setLong(5, x.id);
                 ps.executeUpdate();
             }
-            // Los agregados materializados se refrescan fuera de la transaccion de carga; si fallan, el ETL no se revierte
+            // Los agregados materializados se refrescan fuera de la transacción de carga; si fallan, el ETL no se revierte
             try (Statement st = c.createStatement()) {
                 long t = System.nanoTime();
                 st.execute("SELECT dwh.refrescar_agregados()");
@@ -688,11 +703,11 @@ public final class EtlService {
             ps.setLong(2, x.id);
             ps.executeUpdate();
         } catch (SQLException ignorada) {
-            // no se puede hacer mas: la excepcion original se propaga
+            // no se puede hacer más: la excepción original se propaga
         }
     }
 
-    //   utilidades
+    // ----------------------------------------------------------------------------------- utilidades
 
     private boolean adquirirLock(Connection c) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement("SELECT pg_try_advisory_lock(?)")) {
@@ -708,7 +723,8 @@ public final class EtlService {
         try (PreparedStatement ps = c.prepareStatement("SELECT pg_advisory_unlock(?)")) {
             ps.setLong(1, LOCK_ID);
             ps.execute();
-        } catch (SQLException ignorada) { 
+        } catch (SQLException ignorada) {
+            // al cerrar la conexión PostgreSQL libera el bloqueo de sesión
         }
     }
 
@@ -733,7 +749,8 @@ public final class EtlService {
         t.correr();
         x.duraciones.put(fase, (System.nanoTime() - ini) / 1_000_000);
     }
- 
+
+    /** Ejecuta una sentencia con parámetros posicionales (Long, BigDecimal...) y devuelve las filas afectadas. */
     private static long ejecutar(Connection c, String sql, Object... params) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             for (int i = 0; i < params.length; i++) {

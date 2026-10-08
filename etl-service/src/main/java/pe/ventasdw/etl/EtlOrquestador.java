@@ -4,7 +4,7 @@ import org.springframework.stereotype.Service;
 import pe.ventasdw.etl.core.EtlResultado;
 import pe.ventasdw.etl.core.EtlService;
 
- 
+/** Punto único de entrada para ejecutar el ETL (API y scheduler): corre el proceso y registra las métricas. */
 @Service
 public class EtlOrquestador {
 

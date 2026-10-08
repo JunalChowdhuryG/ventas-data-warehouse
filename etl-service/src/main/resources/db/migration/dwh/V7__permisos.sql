@@ -1,5 +1,8 @@
- 
--- VentasDW | V7: permisos por minimo privilegio 
+-- =====================================================================
+-- VentasDW | V7: permisos por mínimo privilegio
+--   dwh_etl_rw : el servicio etl-service (escribe en stg, dwh y etl)
+--   dwh_api_ro : olap-api y Grafana (solo lectura de dwh)
+-- =====================================================================
 
 GRANT USAGE ON SCHEMA stg, dwh, etl TO dwh_etl_rw;
 GRANT USAGE ON SCHEMA dwh TO dwh_api_ro;
@@ -23,6 +26,6 @@ GRANT EXECUTE ON FUNCTION dwh.crear_particion_anual(integer) TO dwh_etl_rw;
 -- API y Grafana: solo lectura del DWH
 GRANT SELECT ON ALL TABLES IN SCHEMA dwh TO dwh_api_ro;
 
--- Objetos que se creen mas adelante en dwh heredan lectura para la API
+-- Objetos que se creen más adelante en dwh heredan lectura para la API
 ALTER DEFAULT PRIVILEGES IN SCHEMA dwh GRANT SELECT ON TABLES TO dwh_api_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA dwh GRANT SELECT ON TABLES TO dwh_etl_rw;

@@ -1,10 +1,17 @@
-
--- VentasDW | V8: staging de dimensiones y archivos cargados
+-- =====================================================================
+-- VentasDW | V8: soporte de la Fase 3 (ETL)
+--   * dim_producto.precio_lista: precio de lista vigente (SCD tipo 1: se sobrescribe en la versión actual).
+--     Permite imputar precios faltantes y detectar precios atípicos.
+--   * Staging de maestros (stg.producto, stg.cliente, stg.ciudad, stg.empleado).
+--   * stg.venta_linea: columnas de apoyo para las reglas de calidad y estado EXCLUIDO.
+--   * etl.archivo_cargado: control de los CSV ya procesados.
+--   * Permisos adicionales para el rol de ETL (TRUNCATE en la carga total, DELETE en dimensiones).
+-- =====================================================================
 
 ALTER TABLE dwh.dim_producto ADD COLUMN precio_lista numeric(12,2);
-COMMENT ON COLUMN dwh.dim_producto.precio_lista IS 'Precio de lista (SCD tipo 1: no genera nuevas versiones). Referencia para imputar y detectar atipicos.';
+COMMENT ON COLUMN dwh.dim_producto.precio_lista IS 'Precio de lista (SCD tipo 1: no genera nuevas versiones). Referencia para imputar y detectar atípicos.';
 
---   staging de maestros
+-- ------------------------------------------------------- staging de maestros
 CREATE UNLOGGED TABLE stg.producto (
     producto_id     integer       PRIMARY KEY,
     producto        varchar(200)  NOT NULL,
@@ -36,7 +43,7 @@ CREATE UNLOGGED TABLE stg.empleado (
     cargo        varchar(100)
 );
 
---   stg.venta_linea
+-- ------------------------------------------------------ stg.venta_linea
 ALTER TABLE stg.venta_linea ADD COLUMN precio_lista numeric(12,2);   -- resuelto al transformar
 ALTER TABLE stg.venta_linea ADD COLUMN corregido    boolean NOT NULL DEFAULT false;
 ALTER TABLE stg.venta_linea DROP CONSTRAINT venta_linea_estado_validacion_check;
@@ -45,7 +52,7 @@ ALTER TABLE stg.venta_linea ADD CONSTRAINT venta_linea_estado_validacion_check
 COMMENT ON COLUMN stg.venta_linea.estado_validacion IS
     'PENDIENTE: sin evaluar. VALIDO/CORREGIDO: se carga. RECHAZADO: no se carga (error o duplicado). EXCLUIDO: pedido cancelado o devuelto (se elimina del DWH si estaba).';
 
---   archivos CSV procesados
+-- ------------------------------------------------- archivos CSV procesados
 CREATE TABLE etl.archivo_cargado (
     nombre        varchar(200) PRIMARY KEY,
     filas         integer      NOT NULL,
@@ -53,15 +60,16 @@ CREATE TABLE etl.archivo_cargado (
     cargado_en    timestamptz  NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE etl.archivo_cargado IS 'CSV del canal online ya procesados. Un archivo nuevo = carga pendiente.';
- 
+
+-- Evita registrar dos veces la misma excepción cuando se relee la ventana de solape
 CREATE INDEX ix_excepcion_clave ON etl.excepcion (clave_natural, regla);
 
---   permisos
+-- ------------------------------------------------------------- permisos
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA stg TO dwh_etl_rw;
 GRANT SELECT, INSERT, UPDATE, DELETE ON etl.archivo_cargado TO dwh_etl_rw;
-GRANT TRUNCATE ON dwh.fact_ventas TO dwh_etl_rw;            
-GRANT DELETE ON dwh.dim_producto, dwh.dim_cliente, dwh.dim_geografia, dwh.dim_empleado TO dwh_etl_rw;  
-GRANT SELECT ON ALL TABLES IN SCHEMA etl TO dwh_api_ro;              
+GRANT TRUNCATE ON dwh.fact_ventas TO dwh_etl_rw;                      -- carga total
+GRANT DELETE ON dwh.dim_producto, dwh.dim_cliente, dwh.dim_geografia, dwh.dim_empleado TO dwh_etl_rw;  -- carga total
+GRANT SELECT ON ALL TABLES IN SCHEMA etl TO dwh_api_ro;               -- la API puede mostrar el estado del ETL
 GRANT USAGE ON SCHEMA etl TO dwh_api_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA stg GRANT ALL PRIVILEGES ON TABLES TO dwh_etl_rw;
 ALTER DEFAULT PRIVILEGES IN SCHEMA etl GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dwh_etl_rw;

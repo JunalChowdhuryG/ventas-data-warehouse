@@ -4,7 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
- 
+
+/** Respuesta de una operación OLAP: datos, contexto resultante y qué operaciones siguen disponibles. */
 public record Resultado(
         Contexto contexto,
         List<Columna> columnas,
@@ -19,9 +20,12 @@ public record Resultado(
 
     public record Columna(String id, String tipo, String etiqueta) {
     }
- 
+
+    /** Tabla dinámica: una fila por combinación de atributos de fila, una columna por combinación de atributos de columna. */
     public record Pivot(List<String> atributosFila, List<String> atributosColumna, List<List<Object>> columnas, List<PivotFila> filas) {
-    } 
+    }
+
+    /** celdas va alineada con Pivot.columnas; una celda es null cuando no hay datos para esa combinación. */
     public record PivotFila(List<Object> clave, List<Map<String, Object>> celdas) {
     }
 

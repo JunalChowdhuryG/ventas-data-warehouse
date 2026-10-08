@@ -8,7 +8,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 import pe.ventasdw.etl.core.EtlResultado;
 
- 
+/**
+ * Publica las métricas del ETL para Prometheus. Los nombres se ven así en /actuator/prometheus:
+ * etl_ejecuciones_total, etl_filas_extraidas_total, etl_filas_cargadas_total, etl_filas_excluidas_total,
+ * etl_excepciones_total{regla,severidad}, etl_duracion_seconds{fase} y etl_ultima_ejecucion_exitosa_timestamp.
+ */
 @Component
 public class EtlMetricas {
 
@@ -18,7 +22,7 @@ public class EtlMetricas {
     public EtlMetricas(MeterRegistry registro) {
         this.registro = registro;
         Gauge.builder("etl.ultima.ejecucion.exitosa.timestamp", ultimaExitosa, AtomicLong::get)
-                .description("Instante (segundos desde 1970) de la ultima ejecucion exitosa del ETL")
+                .description("Instante (segundos desde 1970) de la última ejecución exitosa del ETL")
                 .register(registro);
     }
 

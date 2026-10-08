@@ -1,4 +1,5 @@
-
+# Infraestructura por defecto: docker compose up -d
+# Servicios de la aplicación (opcional):  docker compose --profile apps up -d --build
 name: ventas-dw
 
 services:
@@ -50,7 +51,7 @@ services:
       retries: 20
 
   prometheus:
-    image: prom/prometheus:latest   
+    image: prom/prometheus:latest   # fija una versión concreta antes de publicar el proyecto
     ports:
       - "9090:9090"
     volumes:
@@ -59,7 +60,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   grafana:
-    image: grafana/grafana:latest 
+    image: grafana/grafana:latest   # fija una versión concreta antes de publicar el proyecto
     ports:
       - "3000:3000"
     environment:
@@ -73,7 +74,7 @@ services:
       - prometheus
       - postgres-dwh
 
-  # aplicacion  
+  # ------------------------------------------------------------ aplicación (perfil "apps")
   oltp-generator:
     profiles: ["apps"]
     build:
@@ -85,7 +86,7 @@ services:
       OLTP_OWNER_PASSWORD: ${OLTP_OWNER_PASSWORD}
       GENERADOR_DIRECTORIO_CSV: /data/csv
     volumes:
-      - csv-data:/data/csv        
+      - csv-data:/data/csv        # CSV del canal online; el ETL los lee desde el mismo volumen
     ports:
       - "8082:8082"
     depends_on:

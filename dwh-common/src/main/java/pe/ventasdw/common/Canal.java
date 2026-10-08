@@ -2,7 +2,9 @@ package pe.ventasdw.common;
 
 import java.util.Arrays;
 
-
+/**
+ * Canales de venta. Las claves coinciden con las filas sembradas en dwh.dim_canal (migración V5).
+ */
 public enum Canal {
     DESCONOCIDO((short) -1),
     TIENDA((short) 1),
@@ -14,12 +16,12 @@ public enum Canal {
         this.clave = clave;
     }
 
-    /** Clave sustituta en dwh.dim_canal*/
+    /** Clave sustituta en dwh.dim_canal. */
     public short clave() {
         return clave;
     }
 
-    /** Resuelve un codigo de origen (TIENDA, ONLINE...) */
+    /** Resuelve un código de origen (TIENDA, ONLINE...) ignorando mayúsculas; si no existe, DESCONOCIDO. */
     public static Canal desdeCodigo(String codigo) {
         if (codigo == null) {
             return DESCONOCIDO;

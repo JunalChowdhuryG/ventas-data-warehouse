@@ -5,20 +5,23 @@ spring:
   application:
     name: etl-service
   flyway:
- 
+    # Migraciones con el usuario dueño del DWH (necesita crear esquemas y extensiones)
     url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh?reWriteBatchedInserts=true}
     user: ${DWH_OWNER_USER:dwh}
     password: ${DWH_OWNER_PASSWORD:dwh}
     locations: classpath:db/migration/dwh
+    # El usuario dueño se llama igual que el esquema dwh: sin esto, tras la primera migración PostgreSQL
+    # resolvería el esquema actual como dwh (search_path "$user", public) y Flyway buscaría allí su historial.
     default-schema: public
 
 etl:
-  csv-directorio: ${ETL_CSV_DIRECTORIO:../oltp-generator/data/csv}   
-  tipo-cambio-usd: 3.70       
-  solape-minutos: 5            
-  cron: "0 30 1 * * *"        
+  csv-directorio: ${ETL_CSV_DIRECTORIO:../oltp-generator/data/csv}   # carpeta con los CSV del canal online
+  tipo-cambio-usd: 3.70       # soles por dólar para convertir los precios del CSV
+  solape-minutos: 5           # ventana que se relee antes del watermark (seguro: las cargas son idempotentes)
+  cron: "0 30 1 * * *"        # hora de Lima
   activo: true
- 
+
+# Destino: DWH (usuario de runtime del grupo dwh_etl_rw)
 dwh:
   datasource:
     jdbc-url: ${DWH_URL:jdbc:postgresql://localhost:5433/dwh?reWriteBatchedInserts=true}

@@ -24,13 +24,16 @@ import org.junit.jupiter.api.io.TempDir;
 import org.postgresql.ds.PGSimpleDataSource;
 
 /**
- * Pruebas de integracion del ETL contra PostgreSQL real 
+ * Pruebas de integración del ETL contra PostgreSQL real, con un conjunto de datos pequeño y conocido
+ * donde cada regla de calidad se dispara exactamente una vez. Cada prueba usa bases nuevas (OLTP y DWH).
+ * Las subclases dicen dónde está el servidor y cómo se migra el DWH.
  */
 public abstract class EtlIntegracionBase {
 
     private static final ZoneId LIMA = ZoneId.of("America/Lima");
     private static final AtomicInteger SECUENCIA = new AtomicInteger();
- 
+
+    /** URL del servidor terminada en barra, por ejemplo jdbc:postgresql://localhost:5432/ */
     protected abstract String urlServidor();
 
     protected abstract String usuario();
@@ -38,7 +41,8 @@ public abstract class EtlIntegracionBase {
     protected abstract String clave();
 
     protected abstract String baseAdministrativa();
- 
+
+    /** Aplica las migraciones del DWH (Flyway en Testcontainers). */
     protected abstract void migrarDwh(PGSimpleDataSource dwh) throws Exception;
 
     protected PGSimpleDataSource oltp;
@@ -72,8 +76,9 @@ public abstract class EtlIntegracionBase {
         return ds;
     }
 
-    //   datos de prueba
- 
+    // ----------------------------------------------------------------------------- datos de prueba
+
+    /** Catálogo mínimo y cuatro pedidos del OLTP; el CSV online trae otras cuatro filas (una duplicada). */
     private void datosBase() throws Exception {
         LocalDate futura = LocalDate.now(LIMA).plusDays(10);
         sql(oltp, "INSERT INTO ciudad (ciudad, provincia, departamento) VALUES ('Lima', 'Lima', 'Lima');"
@@ -85,24 +90,24 @@ public abstract class EtlIntegracionBase {
                 + "(1, 1, 1, DATE '2026-03-10', 'ENTREGADO'), (2, 2, 1, DATE '" + futura + "', 'ENTREGADO'), "
                 + "(3, 1, 1, DATE '2026-03-11', 'CANCELADO'), (4, 2, 1, DATE '2026-03-12', 'E');"
                 + "INSERT INTO detalle_pedido (pedido_id, linea, producto_id, cantidad, precio_unitario, descuento) VALUES "
-                + "(1, 1, 1, 2, 10.00, 0), "       
-                + "(1, 2, 2, 1, NULL, 0), "          
-                + "(1, 3, 1, 0, 10.00, 0), "         
-                + "(1, 4, 2, 1, 1000.00, 0), "    
-                + "(1, 5, NULL, 1, 5.00, 0), "       
-                + "(2, 1, 1, 1, 10.00, 0), "          
-                + "(3, 1, 1, 1, 10.00, 0), "           
-                + "(4, 1, 3, 3, 5.00, 0.10);");       
+                + "(1, 1, 1, 2, 10.00, 0), "          // normal: 20.00
+                + "(1, 2, 2, 1, NULL, 0), "           // precio nulo: se imputa con el de lista (20.00)
+                + "(1, 3, 1, 0, 10.00, 0), "          // cantidad 0: se rechaza
+                + "(1, 4, 2, 1, 1000.00, 0), "        // precio atípico (50 veces el de lista): se carga con advertencia
+                + "(1, 5, NULL, 1, 5.00, 0), "        // producto nulo: miembro Desconocido
+                + "(2, 1, 1, 1, 10.00, 0), "          // fecha futura: se rechaza
+                + "(3, 1, 1, 1, 10.00, 0), "          // pedido cancelado: no cuenta como venta
+                + "(4, 1, 3, 3, 5.00, 0.10);");       // estado 'E' = ENTREGADO: 3 x 5.00 x 0.90 = 13.50
         Files.writeString(csv.resolve("ventas_online_20260310.csv"), String.join("\n",
                 "pedido_online_id,linea,fecha_pedido,estado,cliente_id,razon_social,email,ciudad_id,producto_id,descripcion,categoria,cantidad,precio_unitario,descuento,moneda,updated_at",
-                "1,1,2026-03-10,Entregado,1,ANA,,1,3,Chocolate,B,2,2.00,0.0,USD,2026-03-10T15:00:00-05:00",    
-                "1,1,2026-03-10,Entregado,1,ANA,,1,3,Chocolate,B,2,2.00,0.0,USD,2026-03-10T15:00:00-05:00",    
-                "1,2,2026-03-10,ENT,1,ANA,,1,99999,\"Producto, desconocido\",B,1,3.00,0.0,PEN,2026-03-10T15:00:00-05:00",   
-                "2,1,2026-03-10,E,2,BETO,,1,1,P1,A,1,,0.0,PEN,2026-03-10T16:00:00-05:00",                     
+                "1,1,2026-03-10,Entregado,1,ANA,,1,3,Chocolate,B,2,2.00,0.0,USD,2026-03-10T15:00:00-05:00",   // 2 x 2.00 USD x 3.70 = 14.80
+                "1,1,2026-03-10,Entregado,1,ANA,,1,3,Chocolate,B,2,2.00,0.0,USD,2026-03-10T15:00:00-05:00",   // duplicada
+                "1,2,2026-03-10,ENT,1,ANA,,1,99999,\"Producto, desconocido\",B,1,3.00,0.0,PEN,2026-03-10T15:00:00-05:00",  // producto inexistente: 3.00
+                "2,1,2026-03-10,E,2,BETO,,1,1,P1,A,1,,0.0,PEN,2026-03-10T16:00:00-05:00",                     // precio vacío: se imputa 10.00
                 ""), StandardCharsets.UTF_8);
     }
 
-    //   pruebas
+    // ----------------------------------------------------------------------------- pruebas
 
     @Test
     void cargaInicialAplicaCadaReglaDeCalidadYCargaLosHechosEsperados() throws Exception {
@@ -131,9 +136,12 @@ public abstract class EtlIntegracionBase {
                 .containsEntry("PRECIO_NULO", 2L).containsEntry("PRECIO_ATIPICO", 1L)
                 .containsEntry("PRODUCTO_NULO", 1L).containsEntry("PRODUCTO_INEXISTENTE", 1L)
                 .containsEntry("LINEA_DUPLICADA", 1L).hasSize(7);
- 
-        assertThat(num("SELECT count(*) FROM dwh.fact_ventas WHERE producto_key = -1")).isEqualTo(2L); 
-        assertThat(num("SELECT count(DISTINCT canal_key) FROM dwh.fact_ventas WHERE pedido_id = 1")).isEqualTo(2L); 
+
+        // Producto desconocido: dos hechos apuntan al miembro -1 (nulo en OLTP, inexistente en CSV)
+        assertThat(num("SELECT count(*) FROM dwh.fact_ventas WHERE producto_key = -1")).isEqualTo(2L);
+        // Los dos canales conviven aunque el id de pedido coincida (1 en OLTP y 1 en CSV)
+        assertThat(num("SELECT count(DISTINCT canal_key) FROM dwh.fact_ventas WHERE pedido_id = 1")).isEqualTo(2L);
+        // El control quedó listo para cargas incrementales
         assertThat(num("SELECT count(*) FROM etl.control WHERE fuente = 'OLTP' AND carga_inicial_completa")).isEqualTo(6L);
     }
 
@@ -145,10 +153,11 @@ public abstract class EtlIntegracionBase {
 
         EtlResultado repetida = etl.ejecutar(EtlService.Modo.AUTO);
         assertThat(repetida.tipoCarga()).isEqualTo("INCREMENTAL");
-        assertThat(repetida.filasCargadas()).isZero();        
-        assertThat(repetida.archivosCsv()).isEmpty();      
+        assertThat(repetida.filasCargadas()).isZero();       // la ventana de solape relee, pero no hay nada distinto
+        assertThat(repetida.archivosCsv()).isEmpty();        // el CSV ya procesado no se vuelve a leer
         assertThat(decimal("SELECT sum(importe_total) FROM dwh.fact_ventas")).isEqualByComparingTo(antes);
- 
+
+        // Un pedido nuevo y un CSV nuevo llegan después
         LocalDate hoy = LocalDate.now(LIMA);
         sql(oltp, "INSERT INTO pedido (pedido_id, cliente_id, empleado_id, fecha_pedido, estado) VALUES (10, 1, 1, DATE '" + hoy + "', 'PENDIENTE');"
                 + "INSERT INTO detalle_pedido (pedido_id, linea, producto_id, cantidad, precio_unitario, descuento) VALUES (10, 1, 2, 1, 20.00, 0);");
@@ -167,7 +176,8 @@ public abstract class EtlIntegracionBase {
         datosBase();
         etl.ejecutar(EtlService.Modo.AUTO);
         assertThat(num("SELECT count(*) FROM dwh.dim_producto WHERE producto_id = 1")).isEqualTo(1L);
- 
+
+        // P1 cambia de categoría A a B; además entra una venta nueva de hoy
         LocalDate hoy = LocalDate.now(LIMA);
         sql(oltp, "UPDATE producto SET categoria_id = 2 WHERE producto_id = 1;"
                 + "INSERT INTO pedido (pedido_id, cliente_id, empleado_id, fecha_pedido, estado) VALUES (11, 1, 1, DATE '" + hoy + "', 'PENDIENTE');"
@@ -175,15 +185,18 @@ public abstract class EtlIntegracionBase {
         etl.ejecutar(EtlService.Modo.AUTO);
 
         assertThat(num("SELECT count(*) FROM dwh.dim_producto WHERE producto_id = 1")).isEqualTo(2L);
-        assertThat(num("SELECT count(*) FROM dwh.dim_producto WHERE producto_id = 1 AND es_actual")).isEqualTo(1L); 
+        assertThat(num("SELECT count(*) FROM dwh.dim_producto WHERE producto_id = 1 AND es_actual")).isEqualTo(1L);
+        // La venta antigua sigue en la categoría A, la nueva usa la B
         assertThat(texto("SELECT p.categoria FROM dwh.fact_ventas f JOIN dwh.dim_producto p USING (producto_key) "
                 + "JOIN dwh.dim_canal c USING (canal_key) WHERE c.codigo = 'TIENDA' AND f.pedido_id = 1 AND f.linea = 1")).isEqualTo("A");
         assertThat(texto("SELECT p.categoria FROM dwh.fact_ventas f JOIN dwh.dim_producto p USING (producto_key) "
-                + "JOIN dwh.dim_canal c USING (canal_key) WHERE c.codigo = 'TIENDA' AND f.pedido_id = 11")).isEqualTo("B"); 
+                + "JOIN dwh.dim_canal c USING (canal_key) WHERE c.codigo = 'TIENDA' AND f.pedido_id = 11")).isEqualTo("B");
+        // Ninguna venta apunta a una versión que no estaba vigente en su fecha
         assertThat(num("SELECT count(*) FROM dwh.fact_ventas f JOIN dwh.dim_producto p USING (producto_key) "
                 + "JOIN dwh.dim_fecha d USING (fecha_key) WHERE p.producto_key <> -1 "
                 + "AND NOT (d.fecha >= p.vigente_desde AND d.fecha < p.vigente_hasta)")).isZero();
- 
+
+        // Un segundo cambio el mismo día corrige la versión actual, no crea otra
         sql(oltp, "UPDATE producto SET nombre = 'P1 renombrado' WHERE producto_id = 1;");
         etl.ejecutar(EtlService.Modo.AUTO);
         assertThat(num("SELECT count(*) FROM dwh.dim_producto WHERE producto_id = 1")).isEqualTo(2L);
@@ -214,7 +227,7 @@ public abstract class EtlIntegracionBase {
         EtlResultado total = etl.ejecutar(EtlService.Modo.TOTAL);
 
         assertThat(total.tipoCarga()).isEqualTo("TOTAL");
-        assertThat(total.archivosCsv()).containsExactly("ventas_online_20260310.csv");   
+        assertThat(total.archivosCsv()).containsExactly("ventas_online_20260310.csv");   // se vuelven a leer
         assertThat(num("SELECT count(*) FROM dwh.fact_ventas")).isEqualTo(8L);
         assertThat(decimal("SELECT sum(importe_total) FROM dwh.fact_ventas")).isEqualByComparingTo(importe);
         assertThat(num("SELECT count(*) FROM etl.excepcion")).isEqualTo(excepciones);
@@ -233,7 +246,7 @@ public abstract class EtlIntegracionBase {
         assertThat(num("SELECT count(*) FROM dwh.fact_ventas")).isZero();
     }
 
-    //   utilidades
+    // ----------------------------------------------------------------------------- utilidades
 
     private void script(PGSimpleDataSource ds, String recurso) throws Exception {
         try (InputStream in = getClass().getResourceAsStream(recurso)) {

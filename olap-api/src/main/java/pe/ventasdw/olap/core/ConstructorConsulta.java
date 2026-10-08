@@ -14,10 +14,13 @@ import pe.ventasdw.olap.core.CuboVentas.Dimension;
 import pe.ventasdw.olap.core.CuboVentas.Tipo;
 
 /**
- * Traduce un contexto OLAP a SQL
+ * Traduce un contexto OLAP a SQL. Los identificadores (tablas, columnas, expresiones) salen siempre de los
+ * metadatos del cubo; los valores de los filtros viajan como parámetros. Si el contexto lo permite, la
+ * consulta se resuelve sobre una vista materializada en lugar de la tabla de hechos.
  */
 final class ConstructorConsulta {
- 
+
+    /** SQL listo para ejecutar con sus parámetros. */
     record Consulta(String sql, List<Object> parametros, List<String> atributos, List<String> medidas,
                     boolean conSubtotales, String origen) {
     }
@@ -101,7 +104,8 @@ final class ConstructorConsulta {
         if (!orden.isEmpty()) {
             sql.append(" ORDER BY ").append(String.join(", ", orden));
         }
-        sql.append(" LIMIT ").append(c.limite() + 1);    
+        sql.append(" LIMIT ").append(c.limite() + 1);   // una fila de más para saber si hubo truncamiento
+
         return new Consulta(sql.toString(), parametros, atributos, c.medidas(), c.subtotales() && !atributos.isEmpty(),
                 agregado != null ? agregado.tabla().substring(agregado.tabla().indexOf('.') + 1) : "fact_ventas");
     }
@@ -112,7 +116,8 @@ final class ConstructorConsulta {
         }
         return CuboVentas.atributo(atributo).expresion();
     }
- 
+
+    /** Un agregado sirve si cubre todos los atributos (incluidos los de filtros) y solo hay medidas aditivas que tiene. */
     private static Agregado elegirAgregado(Contexto c, List<String> atributos) {
         Set<String> usados = new LinkedHashSet<>(atributos);
         for (Contexto.Filtro f : c.filtros()) {

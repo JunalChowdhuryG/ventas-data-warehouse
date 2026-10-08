@@ -6,7 +6,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
- 
+
+/** Ejecuta las pruebas del ETL contra un PostgreSQL 16 de Testcontainers (requiere Docker). */
 @Testcontainers
 class EtlIntegracionTest extends EtlIntegracionBase {
 

@@ -3,9 +3,11 @@ package pe.ventasdw.generator.core;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.Random;
- 
+
+/** Distribuciones y estacionalidad del modelo de ventas simulado. Sin dependencias de base de datos. */
 public final class ModeloVentas {
- 
+
+    // Enero a diciembre: febrero flojo, mayo (Día de la Madre), julio (Fiestas Patrias), noviembre (Cyber) y diciembre altos
     private static final double[] FACTOR_MES = {0.95, 0.90, 0.95, 1.00, 1.10, 1.00, 1.12, 1.00, 0.98, 1.02, 1.15, 1.45};
 
     private static final String[] ENTREGADO = {
@@ -14,7 +16,8 @@ public final class ModeloVentas {
 
     private ModeloVentas() {
     }
- 
+
+    /** Multiplicador de volumen para una fecha: mes del año por día de la semana. */
     public static double factorEstacional(LocalDate fecha) {
         double mes = FACTOR_MES[fecha.getMonthValue() - 1];
         double dia = switch (fecha.getDayOfWeek()) {
@@ -26,13 +29,13 @@ public final class ModeloVentas {
         return mes * dia;
     }
 
-    /** Numero de pedidos del dia: base por estacionalidad, con ruido normal de 8%. Al menos 1. */
+    /** Número de pedidos del día: base por estacionalidad, con ruido normal de 8%. Al menos 1. */
     public static int pedidosDelDia(Random r, int base, LocalDate fecha) {
         double n = base * factorEstacional(fecha) * (1 + 0.08 * r.nextGaussian());
         return Math.max(1, (int) Math.round(n));
     }
 
-    /** Lineas por pedido: la mayoria tiene 1 a 3. */
+    /** Líneas por pedido: la mayoría tiene 1 a 3. */
     public static int lineasPorPedido(Random r) {
         return elegir(r, new int[] {1, 2, 3, 4, 5, 6}, new int[] {35, 28, 18, 10, 6, 3});
     }
@@ -46,7 +49,7 @@ public final class ModeloVentas {
         return c / 100.0;
     }
 
-    /** Un estado "entregado" con las variantes de codificacion que existen en los sistemas fuente. */
+    /** Un estado "entregado" con las variantes de codificación que existen en los sistemas fuente. */
     public static String estadoEntregado(Random r) {
         return ENTREGADO[r.nextInt(ENTREGADO.length)];
     }
@@ -56,7 +59,7 @@ public final class ModeloVentas {
         return d == DayOfWeek.SATURDAY || d == DayOfWeek.SUNDAY;
     }
 
-    /** Elige un valor segun pesos enteros. */
+    /** Elige un valor según pesos enteros. */
     static int elegir(Random r, int[] valores, int[] pesos) {
         int total = 0;
         for (int p : pesos) {

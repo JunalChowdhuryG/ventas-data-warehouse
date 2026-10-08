@@ -3,7 +3,9 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
- 
+
+  <!-- Spring Boot 4.1 (GA 2026-06-10). La rama 3.5 llegó al fin de soporte OSS el 2026-06-30.
+       Sube al último parche 4.1.x disponible cuando lo uses. -->
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
@@ -16,7 +18,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>VentasDW</name>
-  <description>Plataforma de Data Warehouse y analisis OLAP para ventas</description>
+  <description>Plataforma de Data Warehouse y análisis OLAP para ventas</description>
 
   <properties>
     <java.version>21</java.version>

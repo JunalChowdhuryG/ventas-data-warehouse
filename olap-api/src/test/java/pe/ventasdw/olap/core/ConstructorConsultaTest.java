@@ -33,9 +33,11 @@ class ConstructorConsultaTest {
         assertThat(sql(List.of("geografia.departamento"), List.of("ventas"),
                 List.of(new Contexto.Filtro("canal.canal", List.of("Online"), null, null)), false, true).origen())
                 .isEqualTo("mv_ventas_mensual_departamento");
+        // Pedidos no es aditiva; el producto no está en ningún agregado junto con el departamento; usarAgregados=false lo impide
         assertThat(sql(List.of("fecha.anio"), List.of("pedidos"), null, false, true).origen()).isEqualTo("fact_ventas");
         assertThat(sql(List.of("producto.categoria", "geografia.departamento"), List.of("ventas"), null, false, true).origen()).isEqualTo("fact_ventas");
         assertThat(sql(List.of("fecha.anio"), List.of("ventas"), null, false, false).origen()).isEqualTo("fact_ventas");
+        // Un filtro por un atributo que el agregado no tiene (trimestre) obliga a ir a los hechos
         assertThat(sql(List.of("fecha.anio"), List.of("ventas"), List.of(new Contexto.Filtro("fecha.trimestre", List.of("1"), null, null)), false, true).origen())
                 .isEqualTo("fact_ventas");
     }

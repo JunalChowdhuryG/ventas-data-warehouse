@@ -9,7 +9,10 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import pe.ventasdw.generator.core.GeneradorVentas;
 
-
+/**
+ * Al arrancar, si el OLTP no tiene pedidos, carga el histórico (dos años por defecto).
+ * Corre después de que el servidor web esté arriba, así que Actuator responde mientras dura la carga.
+ */
 @Component
 public class CargaInicialRunner implements ApplicationRunner {
 
@@ -30,13 +33,13 @@ public class CargaInicialRunner implements ApplicationRunner {
             return;
         }
         if (!generador.oltpVacio()) {
-            LOG.info("El OLTP ya tiene pedidos: no se carga el historico");
+            LOG.info("El OLTP ya tiene pedidos: no se carga el histórico");
             return;
         }
         LocalDate ayer = LocalDate.now(ZoneId.of("America/Lima")).minusDays(1);
-        LOG.info("Cargando historico de {} año(s) hasta {} ...", props.anosHistorico(), ayer);
+        LOG.info("Cargando histórico de {} año(s) hasta {} ...", props.anosHistorico(), ayer);
         long inicio = System.currentTimeMillis();
         var resumen = generador.cargarHistorico(ayer);
-        LOG.info("Historico cargado en {} s: {}", (System.currentTimeMillis() - inicio) / 1000, resumen);
+        LOG.info("Histórico cargado en {} s: {}", (System.currentTimeMillis() - inicio) / 1000, resumen);
     }
 }

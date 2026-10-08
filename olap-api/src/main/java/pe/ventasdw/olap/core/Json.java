@@ -6,7 +6,8 @@ import java.util.Collection;
 import java.util.Map;
 
 /**
- * Serializador JSON  
+ * Serializador JSON mínimo para las respuestas OLAP (mapas, listas, textos, números, booleanos, fechas y nulos).
+ * Genera el texto directamente: así la respuesta se puede guardar tal cual en la caché y devolver sin reprocesar.
  */
 public final class Json {
 

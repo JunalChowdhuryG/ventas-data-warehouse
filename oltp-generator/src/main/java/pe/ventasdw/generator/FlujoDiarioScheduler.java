@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import pe.ventasdw.generator.core.GeneradorVentas;
 
+/** Genera el flujo del día según generador.cron (por defecto, todos los días a la 1:00, hora de Lima). */
 @Component
 public class FlujoDiarioScheduler {
 

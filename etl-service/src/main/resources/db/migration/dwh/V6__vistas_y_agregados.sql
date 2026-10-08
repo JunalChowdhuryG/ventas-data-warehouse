@@ -1,13 +1,14 @@
- 
--- VentasDW | V6: vistas de version actual, agregados materializados y refresco 
+-- =====================================================================
+-- VentasDW | V6: vistas de versión actual, agregados materializados y refresco
+-- =====================================================================
 
--- Vistas de la version vigente de las dimensiones SCD2
+-- Vistas de la versión vigente de las dimensiones SCD2
 CREATE VIEW dwh.v_dim_producto_actual AS
     SELECT producto_key, producto_id, producto, categoria FROM dwh.dim_producto WHERE es_actual;
 CREATE VIEW dwh.v_dim_cliente_actual AS
     SELECT cliente_key, cliente_id, cliente, email FROM dwh.dim_cliente WHERE es_actual;
 
--- Agregado 1: ventas por mes y categoria (la categoria es la vigente al momento de la venta)
+-- Agregado 1: ventas por mes y categoría (la categoría es la vigente al momento de la venta)
 CREATE MATERIALIZED VIEW dwh.mv_ventas_mensual_categoria AS
 SELECT d.anio,
        d.mes,
@@ -39,7 +40,8 @@ GROUP BY d.anio, d.mes, g.departamento, c.canal
 WITH DATA;
 CREATE UNIQUE INDEX ux_mv_ventas_mensual_depto ON dwh.mv_ventas_mensual_departamento (anio, mes, departamento, canal);
 
--- Refresco sin bloquear lecturas 
+-- Refresco sin bloquear lecturas. El ETL lo invoca al final de cada carga exitosa.
+-- SECURITY DEFINER: el rol de ETL puede refrescar aunque no sea dueño de las vistas.
 CREATE OR REPLACE FUNCTION dwh.refrescar_agregados()
 RETURNS void
 LANGUAGE plpgsql

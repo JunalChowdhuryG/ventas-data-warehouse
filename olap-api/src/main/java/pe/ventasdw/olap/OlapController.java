@@ -23,7 +23,10 @@ import pe.ventasdw.olap.core.OlapException;
 import pe.ventasdw.olap.core.OlapService;
 import pe.ventasdw.olap.core.Resultado;
 
- 
+/**
+ * Operaciones OLAP sobre el cubo de ventas. Todas son POST con un contexto en el cuerpo (el servidor no guarda
+ * estado) y responden JSON. Las respuestas se guardan en Redis; el encabezado X-Cache indica HIT o MISS.
+ */
 @RestController
 @RequestMapping("/api/v1/olap")
 public class OlapController {
@@ -38,7 +41,7 @@ public class OlapController {
         this.metricas = metricas;
     }
 
-    //   solicitudes
+    // ------------------------------------------------------------------------------------ solicitudes
 
     public record DrillSolicitud(Contexto contexto, String dimension, Map<String, String> miembro) {
     }
@@ -52,7 +55,7 @@ public class OlapController {
     public record PaginaSolicitud(Contexto contexto, String atributo, String valor) {
     }
 
-    //   operaciones
+    // ------------------------------------------------------------------------------------ operaciones
 
     @PostMapping(value = "/consulta", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> consulta(@RequestBody Contexto contexto,
@@ -91,8 +94,9 @@ public class OlapController {
         return responder("page", s, sql, () -> olap.page(requerido(s.contexto()), s.atributo(), s.valor()));
     }
 
-    //   metadatos
- 
+    // ------------------------------------------------------------------------------------ metadatos
+
+    /** Dimensiones con sus jerarquías, atributos, medidas y agregados disponibles. */
     @GetMapping(value = "/metadatos", produces = MediaType.APPLICATION_JSON_VALUE)
     public String metadatos() {
         List<Object> dimensiones = new java.util.ArrayList<>();
@@ -136,14 +140,15 @@ public class OlapController {
         m.put("agregados", agregados);
         return Json.escribir(m);
     }
- 
+
+    /** Valores distintos de un atributo, para armar filtros (con búsqueda opcional por texto). */
     @GetMapping(value = "/metadatos/valores", produces = MediaType.APPLICATION_JSON_VALUE)
     public String valores(@RequestParam String atributo, @RequestParam(required = false) String q,
                           @RequestParam(defaultValue = "100") int limite) {
         return Json.escribir(Map.of("atributo", atributo, "valores", olap.valoresDe(atributo, q, limite)));
     }
 
-    //   errores
+    // ------------------------------------------------------------------------------------ errores
 
     @ExceptionHandler(OlapException.class)
     public ResponseEntity<String> solicitudInvalida(OlapException e) {
@@ -160,7 +165,7 @@ public class OlapController {
                 .body(Json.escribir(Map.of("error", String.valueOf(mensaje))));
     }
 
-    //   comunes
+    // ------------------------------------------------------------------------------------ comunes
 
     private static Contexto requerido(Contexto c) {
         if (c == null) {
@@ -168,7 +173,8 @@ public class OlapController {
         }
         return c;
     }
- 
+
+    /** Ejecuta con caché: la clave usa la solicitud tal como llegó (los records tienen toString determinista). */
     private ResponseEntity<String> responder(String operacion, Object solicitud, boolean incluirSql, Supplier<Resultado> calculo) {
         String clave = cache.activa() && !incluirSql ? cache.clave(operacion, solicitud) : null;
         if (clave != null) {

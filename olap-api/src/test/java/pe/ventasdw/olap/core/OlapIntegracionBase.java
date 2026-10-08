@@ -13,7 +13,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
- 
+
+/**
+ * Pruebas del motor OLAP contra PostgreSQL real y un cubo pequeño cuyos totales se pueden verificar a mano.
+ *
+ * <pre>
+ *  fecha       canal   prod cli ciudad pedido-línea cant precio desc  importe
+ *  2025-02-10  Tienda  P1   C1  Lima   1-1   2   10.00 0     20.00
+ *  2025-02-10  Tienda  P2   C1  Lima   1-2   1   20.00 0     20.00
+ *  2025-05-03  Online  P3   C2  Cusco  1-1   3    5.00 0.10  13.50   (mismo número de pedido que el de Tienda)
+ *  2026-01-15  Tienda  P1   C2  Cusco  2-1   1   10.00 0     10.00
+ *  2026-04-20  Online  P2   C1  Lima   3-1   4   20.00 0.25  60.00
+ *  2026-04-20  Online  P3   C1  Lima   3-2   2    5.00 0     10.00
+ * </pre>
+ * P1 y P2 son de la categoría A; P3, de la B. Totales: ventas 133.50, unidades 13, pedidos 4, líneas 6.
+ */
 public abstract class OlapIntegracionBase {
 
     private static final AtomicInteger SECUENCIA = new AtomicInteger();
@@ -66,7 +80,9 @@ public abstract class OlapIntegracionBase {
                 + " FROM dwh.dim_producto p, dwh.dim_cliente c, dwh.dim_geografia g, dwh.dim_empleado e "
                 + "WHERE p.producto_id = " + producto + " AND c.cliente_id = " + (cliente == 1 ? 1 : 2)
                 + " AND g.ciudad_id = " + ciudad + " AND e.empleado_id = 1");
-    } 
+    }
+
+    // ----------------------------------------------------------------------------------- consulta
 
     @Test
     void totalesGeneralesDelCubo() {
@@ -119,7 +135,7 @@ public abstract class OlapIntegracionBase {
         assertThat(r.datos().get(1).get("producto.producto")).isEqualTo("P1");     // 30.00
     }
 
-    //   operaciones
+    // ----------------------------------------------------------------------------------- operaciones
 
     @Test
     void drillDownYDrillUpRecorrenLaJerarquiaDeFecha() {
@@ -221,7 +237,7 @@ public abstract class OlapIntegracionBase {
         assertThat(r.datos()).hasSize(4 + 2 + 1);
     }
 
-    //   metadatos y seguridad
+    // ----------------------------------------------------------------------------------- metadatos y seguridad
 
     @Test
     void listaLosValoresDeUnAtributoConBusquedaOpcional() {
@@ -247,7 +263,7 @@ public abstract class OlapIntegracionBase {
         assertThat(olap.consultar(ctx(List.of("fecha.anio"), List.of("ventas"))).aJson(true)).contains("\"sql\":\"SELECT");
     }
 
-    //   utilidades
+    // ----------------------------------------------------------------------------------- utilidades
 
     private static Contexto ctx(List<String> filas, List<String> medidas) {
         return new Contexto(filas, null, medidas, null, null, null, null, null);

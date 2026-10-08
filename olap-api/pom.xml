@@ -48,6 +48,7 @@
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Pruebas de integración del motor OLAP: PostgreSQL real y las migraciones del DWH -->
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>
@@ -75,6 +76,7 @@
       <testResource>
         <directory>src/test/resources</directory>
       </testResource>
+      <!-- Las pruebas usan las mismas migraciones que el DWH real: se copian desde etl-service -->
       <testResource>
         <directory>${project.basedir}/../etl-service/src/main/resources/db/migration/dwh</directory>
         <targetPath>db/dwh</targetPath>

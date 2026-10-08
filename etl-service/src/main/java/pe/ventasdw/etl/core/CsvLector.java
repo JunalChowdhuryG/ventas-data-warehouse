@@ -10,12 +10,15 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Lector CSV minimo (RFC 4180) 
+ * Lector CSV mínimo (RFC 4180): separador coma, comillas dobles, comillas escapadas duplicándolas y
+ * saltos de línea dentro de celdas entrecomilladas. Las filas totalmente vacías se ignoran.
  */
 public final class CsvLector {
 
     private CsvLector() {
-    } 
+    }
+
+    /** Lee el archivo y entrega cada registro (incluido el encabezado) como arreglo de celdas. */
     public static void leer(Path archivo, Consumer<String[]> alRegistro) throws IOException {
         try (BufferedReader r = Files.newBufferedReader(archivo, StandardCharsets.UTF_8)) {
             StringBuilder celda = new StringBuilder();
@@ -52,7 +55,7 @@ public final class CsvLector {
                         celda.setLength(0);
                         celdaConComillas = false;
                     }
-                    case '\r' -> {  }
+                    case '\r' -> { /* se ignora; el salto real es \n */ }
                     case '\n' -> {
                         entregar(fila, celda, celdaConComillas, alRegistro);
                         fila = new ArrayList<>();

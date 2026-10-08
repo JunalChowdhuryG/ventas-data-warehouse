@@ -11,17 +11,17 @@ spring:
   flyway:
     locations: classpath:db/migration/oltp
 
-# Generador de datos 
+# Generador de datos (se puede sobrescribir con variables de entorno, p. ej. GENERADOR_ANOS_HISTORICO=1)
 generador:
   semilla: 42
   anos-historico: 2
   pedidos-por-dia: 150
   clientes: 2000
-  tasa-errores: 0.01          
-  proporcion-online: 0.30     
-  carga-inicial: true         
+  tasa-errores: 0.01          # fracción de líneas con un error inyectado a propósito
+  proporcion-online: 0.30     # fracción de pedidos que salen en el CSV del canal online
+  carga-inicial: true         # al arrancar con el OLTP vacío, carga el histórico
   flujo-diario-activo: true
-  cron: "0 0 1 * * *"        
+  cron: "0 0 1 * * *"         # hora de Lima
   directorio-csv: ${GENERADOR_DIRECTORIO_CSV:./data/csv}
 
 management:

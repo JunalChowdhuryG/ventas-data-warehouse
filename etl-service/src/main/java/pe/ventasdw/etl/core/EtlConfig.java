@@ -4,10 +4,10 @@ import java.math.BigDecimal;
 import java.nio.file.Path;
 
 /**
- * Parametros del ETL.
+ * Parámetros del ETL.
  *
  * @param directorioCsv   carpeta con los CSV del canal online
- * @param tipoCambioUsd   soles por dolar para convertir los precios del CSV
+ * @param tipoCambioUsd   soles por dólar para convertir los precios del CSV
  * @param solapeMinutos   se relee esta ventana antes del watermark; es seguro porque las cargas son idempotentes
  *                        y protege contra transacciones del origen que se confirmaron tarde
  * @param tamanoLote      filas por lote al volcar a staging
