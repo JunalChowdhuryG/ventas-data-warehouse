@@ -1,0 +1,130 @@
+### API OLAP de VentasDW: ejemplos para VS Code (extension REST Client) o IntelliJ.
+### Puerto por defecto: 8080. Cada respuesta incluye el encabezado X-Cache (HIT, MISS o BYPASS).
+### Añade ?sql=true a cualquier operacion para ver el SQL generado (y saltar la cache).
+
+@base = http://localhost:8080/api/v1/olap
+
+### Metadatos: dimensiones, jerarquias, medidas y agregados disponibles
+GET {{base}}/metadatos
+
+### Valores de un atributo (para armar filtros), con busqueda opcional
+GET {{base}}/metadatos/valores?atributo=producto.categoria
+
+###
+GET {{base}}/metadatos/valores?atributo=geografia.departamento&q=li
+
+### Consulta base: ventas y unidades por año y categoria (se responde desde un agregado materializado)
+POST {{base}}/consulta
+Content-Type: application/json
+
+{
+  "filas": ["fecha.anio", "producto.categoria"],
+  "medidas": ["ventas", "unidades"]
+}
+
+### Total general: todas las medidas sin agrupar
+POST {{base}}/consulta
+Content-Type: application/json
+
+{
+  "medidas": ["ventas", "unidades", "pedidos", "lineas", "ticket_promedio", "precio_promedio", "descuento_promedio"]
+}
+
+### Top 10 clientes por ventas (filtro y orden)
+POST {{base}}/consulta
+Content-Type: application/json
+
+{
+  "filas": ["cliente.cliente"],
+  "medidas": ["ventas", "pedidos"],
+  "filtros": [{ "atributo": "fecha.anio", "valores": ["2026"] }],
+  "orden": [{ "campo": "ventas", "direccion": "desc" }],
+  "limite": 10
+}
+
+### Rango de fechas
+POST {{base}}/consulta
+Content-Type: application/json
+
+{
+  "filas": ["canal.canal"],
+  "medidas": ["ventas"],
+  "filtros": [{ "atributo": "fecha.dia", "desde": "2026-01-01", "hasta": "2026-03-31" }]
+}
+
+### Subtotales y total general (ROLLUP)
+POST {{base}}/consulta
+Content-Type: application/json
+
+{
+  "filas": ["fecha.anio", "canal.canal"],
+  "medidas": ["ventas"],
+  "subtotales": true
+}
+
+### Drill-down: de año a trimestre, viendo el detalle del miembro 2026
+POST {{base}}/drill-down
+Content-Type: application/json
+
+{
+  "contexto": { "filas": ["fecha.anio"], "medidas": ["ventas"] },
+  "dimension": "fecha",
+  "miembro": { "fecha.anio": "2026" }
+}
+
+### Drill-up: sube un nivel (quita el nivel mas bajo de la dimension)
+POST {{base}}/drill-up
+Content-Type: application/json
+
+{
+  "contexto": { "filas": ["fecha.anio", "fecha.trimestre"], "medidas": ["ventas"] },
+  "dimension": "fecha"
+}
+
+### Drill-across: agrega un criterio de analisis (desglosar por canal)
+POST {{base}}/drill-across
+Content-Type: application/json
+
+{
+  "contexto": { "filas": ["fecha.anio"], "medidas": ["ventas"] },
+  "atributo": "canal.canal"
+}
+
+### Roll-across: quita un criterio de analisis y vuelve a agregar
+POST {{base}}/roll-across
+Content-Type: application/json
+
+{
+  "contexto": { "filas": ["fecha.anio", "canal.canal"], "medidas": ["ventas"] },
+  "atributo": "canal.canal"
+}
+
+### Pivot: categoria en filas y trimestre en columnas
+POST {{base}}/pivot
+Content-Type: application/json
+
+{
+  "contexto": {
+    "filas": ["producto.categoria", "fecha.trimestre"],
+    "medidas": ["ventas"],
+    "filtros": [{ "atributo": "fecha.anio", "valores": ["2025"] }]
+  },
+  "filas": ["producto.categoria"],
+  "columnas": ["fecha.trimestre"]
+}
+
+### Page: el cubo dividido por canal (pagina "Online")
+POST {{base}}/page
+Content-Type: application/json
+
+{
+  "contexto": { "filas": ["producto.categoria"], "medidas": ["ventas", "unidades"] },
+  "atributo": "canal.canal",
+  "valor": "Online"
+}
+
+### Solicitud invalida: responde 400 con {"error": "..."}
+POST {{base}}/consulta
+Content-Type: application/json
+
+{ "filas": ["fecha.siglo"] }
