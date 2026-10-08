@@ -4,7 +4,7 @@ export
 DWH_OWNER_USER  ?= dwh
 OLTP_OWNER_USER ?= oltp
 
-.PHONY: init infra-up apps-up down reset psql-dwh psql-oltp install-common run-generator run-etl run-api test verify-dwh generar-dia etl etl-total etl-historial etl-qa
+.PHONY: init infra-up apps-up down reset psql-dwh psql-oltp install-common run-generator run-etl run-api test verify-dwh generar-dia etl etl-total etl-historial etl-qa olap-metadatos olap-ejemplo
 
 init:            ## Crea .env a partir de .env.example (si no existe)
 	@test -f .env || cp .env.example .env
@@ -52,14 +52,20 @@ verify-dwh:      ## Prueba el DWH con datos de ejemplo (corre dentro de una tran
 generar-dia:     ## Dispara el flujo diario del generador (opcional: make generar-dia FECHA=2026-10-03)
 	curl -s -X POST "http://localhost:8082/api/v1/generador/flujo-diario$(if $(FECHA),?fecha=$(FECHA),)"; echo
 
-etl:   
+etl:             ## Ejecuta el ETL (carga inicial la primera vez, incremental despues)
 	@curl -s -X POST "http://localhost:8081/api/v1/etl/ejecutar"; echo
 
-etl-total:       
+etl-total:       ## Reconstruye el DWH desde cero (la historia SCD2 se recalcula)
 	@curl -s -X POST "http://localhost:8081/api/v1/etl/ejecutar?modo=total"; echo
 
-etl-historial:    
+etl-historial:   ## Ultimas ejecuciones del ETL
 	@curl -s "http://localhost:8081/api/v1/etl/ejecuciones?limite=10"; echo
 
-etl-qa:           
+etl-qa:          ## Errores inyectados por el generador contra errores detectados por el ETL
 	@curl -s "http://localhost:8081/api/v1/etl/calidad/comparacion-qa"; echo
+
+olap-metadatos:  ## Dimensiones, jerarquias y medidas de la API OLAP
+	@curl -s "http://localhost:8080/api/v1/olap/metadatos"; echo
+
+olap-ejemplo:    ## Ventas por año y categoria (agregado materializado); mas ejemplos en requests/olap.http
+	@curl -s -i -X POST "http://localhost:8080/api/v1/olap/consulta" -H "Content-Type: application/json" -d '{"filas":["fecha.anio","producto.categoria"],"medidas":["ventas","unidades"]}' | grep -E "^(HTTP|X-Cache)|^[{]"; echo
