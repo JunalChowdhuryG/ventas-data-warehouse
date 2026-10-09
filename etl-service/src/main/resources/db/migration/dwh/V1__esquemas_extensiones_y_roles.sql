@@ -4,7 +4,7 @@ CREATE SCHEMA IF NOT EXISTS stg;
 CREATE SCHEMA IF NOT EXISTS dwh;    
 CREATE SCHEMA IF NOT EXISTS etl;   
 
-COMMENT ON SCHEMA stg IS 'Staging del ETL: datos crudos y en transformacion. Se puede truncar entre ejecuciones.';
+COMMENT ON SCHEMA stg IS 'Staging del ETL: datos crudos y en transformación. Se puede truncar entre ejecuciones.';
 COMMENT ON SCHEMA dwh IS 'Data Warehouse: esquema estrella (dimensiones y hechos) y agregados.';
 COMMENT ON SCHEMA etl IS 'Metadatos del proceso ETL: control incremental, historial de ejecuciones y excepciones.';
 

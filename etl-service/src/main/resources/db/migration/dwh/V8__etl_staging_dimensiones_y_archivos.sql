@@ -1,8 +1,9 @@
-
--- VentasDW | V8: staging de dimensiones y archivos cargados
+ 
+-- VentasDW | V8: soporte de la Fase 3 (ETL)
+ 
 
 ALTER TABLE dwh.dim_producto ADD COLUMN precio_lista numeric(12,2);
-COMMENT ON COLUMN dwh.dim_producto.precio_lista IS 'Precio de lista (SCD tipo 1: no genera nuevas versiones). Referencia para imputar y detectar atipicos.';
+COMMENT ON COLUMN dwh.dim_producto.precio_lista IS 'Precio de lista (SCD tipo 1: no genera nuevas versiones). Referencia para imputar y detectar atípicos.';
 
 --   staging de maestros
 CREATE UNLOGGED TABLE stg.producto (
@@ -59,9 +60,9 @@ CREATE INDEX ix_excepcion_clave ON etl.excepcion (clave_natural, regla);
 --   permisos
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA stg TO dwh_etl_rw;
 GRANT SELECT, INSERT, UPDATE, DELETE ON etl.archivo_cargado TO dwh_etl_rw;
-GRANT TRUNCATE ON dwh.fact_ventas TO dwh_etl_rw;            
-GRANT DELETE ON dwh.dim_producto, dwh.dim_cliente, dwh.dim_geografia, dwh.dim_empleado TO dwh_etl_rw;  
-GRANT SELECT ON ALL TABLES IN SCHEMA etl TO dwh_api_ro;              
+GRANT TRUNCATE ON dwh.fact_ventas TO dwh_etl_rw;                      -- carga total
+GRANT DELETE ON dwh.dim_producto, dwh.dim_cliente, dwh.dim_geografia, dwh.dim_empleado TO dwh_etl_rw;  -- carga total
+GRANT SELECT ON ALL TABLES IN SCHEMA etl TO dwh_api_ro;               -- la API puede mostrar el estado del ETL
 GRANT USAGE ON SCHEMA etl TO dwh_api_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA stg GRANT ALL PRIVILEGES ON TABLES TO dwh_etl_rw;
 ALTER DEFAULT PRIVILEGES IN SCHEMA etl GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dwh_etl_rw;
